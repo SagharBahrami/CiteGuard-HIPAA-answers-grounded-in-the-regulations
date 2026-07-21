@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: citedguard
+Version: 0.1.0
+Requires-Python: >=3.10
+Requires-Dist: streamlit>=1.38
+Requires-Dist: chromadb>=0.5
+Requires-Dist: redis>=5.0
+Requires-Dist: rq>=1.16
+Requires-Dist: openai>=1.50
+Requires-Dist: requests>=2.32
+Requires-Dist: beautifulsoup4>=4.12
+Requires-Dist: lxml>=5.3
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: pydantic-settings>=2.5
+Requires-Dist: tenacity>=9.0
+Requires-Dist: rank-bm25>=0.2
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"

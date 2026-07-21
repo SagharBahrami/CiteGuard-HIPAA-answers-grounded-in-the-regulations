@@ -1,0 +1,27 @@
+[project]
+name = "citedguard"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit>=1.38",
+    "chromadb>=0.5",
+    "redis>=5.0",
+    "rq>=1.16",
+    "openai>=1.50",
+    "requests>=2.32",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.3",
+    "python-dotenv>=1.0",
+    "pydantic-settings>=2.5",
+    "tenacity>=9.0",
+    "rank-bm25>=0.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+py-modules = ["config", "generate", "guardrails", "qa", "retriever"]
+
+[tool.setuptools.packages.find]
+include = ["ingest*"]
