@@ -62,6 +62,12 @@ python -m ingest --force  # re-fetches everything
 python -m qa
 ```
 
+**Or launch the chat UI:**
+
+```bash
+streamlit run app.py
+```
+
 Or from code:
 
 ```python
@@ -151,11 +157,11 @@ for now:
 - *Block and replace with a safe decline* — safest for compliance, but more
   likely to unhelpfully refuse borderline-fine answers.
 
+| 6 | **Audit logging** | `audit.py` | **Fully implemented** | Every empty-context decline and every faithfulness failure is appended as a JSON line to `logs/guardrail_audit.jsonl`, including the query, generated answer, unsupported claims, and citations used — so guardrail triggers can be reviewed later instead of only existing for the life of the request. Logs full text verbatim (a deliberate choice for reviewability); `logs/` is gitignored since these entries carry the same sensitivity as whatever a user asked. |
+
 **Not implemented / not yet planned in detail:**
 - PII/PHI redaction of user input or model output.
 - Rate limiting or abuse controls.
-- Persistent audit logging of guardrail triggers (faithfulness failures,
-  declined answers) for later review.
 
 ## Project status
 
@@ -166,4 +172,4 @@ for now:
 | Generation with citations | Done |
 | Faithfulness guardrail | Done (warn-only) |
 | RQ worker / job queue | Not started |
-| Streamlit UI | Not started |
+| Streamlit UI | Done |
