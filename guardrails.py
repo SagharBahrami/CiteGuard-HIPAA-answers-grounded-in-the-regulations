@@ -10,6 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config import settings
 from retriever import RetrievedChunk
+from usage import TokenUsage
 
 GUARDRAIL_SYSTEM_PROMPT = (
     "You are a fact-checker reviewing whether an AI-generated answer is fully "
@@ -36,12 +37,15 @@ def check_faithfulness(
     answer: str,
     chunks: list[RetrievedChunk],
     client: OpenAI | None = None,
-) -> FaithfulnessCheck:
+) -> tuple[FaithfulnessCheck, TokenUsage]:
     if not chunks:
-        return FaithfulnessCheck(
-            is_faithful=True,
-            unsupported_claims=[],
-            explanation="No source excerpts were provided; answer declines to answer.",
+        return (
+            FaithfulnessCheck(
+                is_faithful=True,
+                unsupported_claims=[],
+                explanation="No source excerpts were provided; answer declines to answer.",
+            ),
+            TokenUsage.zero(),
         )
 
     client = client or OpenAI(api_key=settings.openai_api_key)
@@ -59,7 +63,7 @@ def check_faithfulness(
             },
         ],
     )
-    return response.choices[0].message.parsed
+    return response.choices[0].message.parsed, TokenUsage.from_response(response.usage)
 
 
 if __name__ == "__main__":
@@ -67,10 +71,11 @@ if __name__ == "__main__":
 
     result = answer_question("What are the technical safeguards for encryption?")
     print("--- Real answer ---")
-    check = check_faithfulness(result.text, result.sources)
+    check, usage = check_faithfulness(result.text, result.sources)
     print("is_faithful:", check.is_faithful)
     print("unsupported_claims:", check.unsupported_claims)
     print("explanation:", check.explanation)
+    print("tokens:", usage)
 
     print("\n--- Deliberately fabricated answer ---")
     fake_answer = (
@@ -78,7 +83,8 @@ if __name__ == "__main__":
         "AES-256 encryption and rotate keys every 90 days, as mandated by the "
         "Security Rule's Technical Safeguards."
     )
-    fake_check = check_faithfulness(fake_answer, result.sources)
+    fake_check, fake_usage = check_faithfulness(fake_answer, result.sources)
     print("is_faithful:", fake_check.is_faithful)
     print("unsupported_claims:", fake_check.unsupported_claims)
     print("explanation:", fake_check.explanation)
+    print("tokens:", fake_usage)

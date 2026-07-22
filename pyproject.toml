@@ -21,7 +21,10 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [tool.setuptools]
-py-modules = ["config", "generate", "guardrails", "qa", "retriever"]
+py-modules = ["config", "generate", "guardrails", "qa", "retriever", "audit", "usage"]
 
 [tool.setuptools.packages.find]
 include = ["ingest*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

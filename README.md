@@ -33,6 +33,13 @@ pip install -e .
 cp .env.example .env   # then fill in OPENAI_API_KEY
 ```
 
+Run the test suite (mocks the OpenAI API and, where relevant, Chroma/network
+calls — no API costs or external requests):
+
+```bash
+pytest
+```
+
 Config lives in `config.py` (via `pydantic-settings`, reading from `.env`):
 
 | Setting | Default | Purpose |
@@ -163,6 +170,33 @@ for now:
 - PII/PHI redaction of user input or model output.
 - Rate limiting or abuse controls.
 
+## Token usage
+
+`generate_answer()` and `check_faithfulness()` both return a `TokenUsage`
+(`usage.py`) alongside their result, and `qa.answer_question()` logs every
+question's usage to `logs/token_usage.jsonl` via `audit.log_usage()` —
+independent of whether a guardrail was triggered, so cost can be measured
+before anything gets tuned to reduce it.
+
+A real run against "What are the technical safeguards for encryption?" at
+`top_k=5` logged:
+
+| Call | Prompt tokens | Completion tokens |
+|---|---|---|
+| Generation | 1231 | 333 |
+| Faithfulness guardrail | 1609 | 364 |
+
+The guardrail call costs *more* prompt tokens than generation, despite doing
+less work per token — it re-sends the same retrieved excerpts *and* the
+generated answer. This is the actual cost of guardrail #4 being an
+independent check rather than the model grading itself (a deliberate
+trade-off, not an oversight — see guardrail #4 above).
+
+Measured, this pointed straight at `top_k` as the lever: dropping the default
+from 5 to 3 (`qa.answer_question`) cut the same question's total tokens from
+3537 to 2287 (-35%), since both calls' context scales with it directly, and
+the answer was still faithful with 3 sources instead of 5.
+
 ## Project status
 
 | Piece | Status |
@@ -173,3 +207,5 @@ for now:
 | Faithfulness guardrail | Done (warn-only) |
 | RQ worker / job queue | Not started |
 | Streamlit UI | Done |
+| Test suite | Done (45 tests: chunk/parse/retriever/generate/guardrails/qa/audit/embed_store/fetch/usage) |
+| Token usage instrumentation | Done (`logs/token_usage.jsonl`, every question) |

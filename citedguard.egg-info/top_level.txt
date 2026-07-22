@@ -1,6 +1,8 @@
+audit
 config
 generate
 guardrails
 ingest
 qa
 retriever
+usage

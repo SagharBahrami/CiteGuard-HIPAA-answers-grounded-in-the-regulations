@@ -10,6 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config import settings
 from retriever import RetrievedChunk
+from usage import TokenUsage
 
 NO_CONTEXT_MESSAGE = (
     "I don't have enough relevant information in the HIPAA regulations I have "
@@ -34,9 +35,9 @@ def generate_answer(
     query: str,
     chunks: list[RetrievedChunk],
     client: OpenAI | None = None,
-) -> str:
+) -> tuple[str, TokenUsage]:
     if not chunks:
-        return NO_CONTEXT_MESSAGE
+        return NO_CONTEXT_MESSAGE, TokenUsage.zero()
 
     client = client or OpenAI(api_key=settings.openai_api_key)
     response = client.chat.completions.create(
@@ -50,7 +51,7 @@ def generate_answer(
             },
         ],
     )
-    return response.choices[0].message.content
+    return response.choices[0].message.content, TokenUsage.from_response(response.usage)
 
 
 if __name__ == "__main__":
@@ -61,5 +62,5 @@ if __name__ == "__main__":
         "How does climate change affect coral reefs?",
     ]:
         chunks = retrieve(q)
-        answer = generate_answer(q, chunks)
-        print(f"\nQuery: {q!r}\nAnswer: {answer}")
+        answer, usage = generate_answer(q, chunks)
+        print(f"\nQuery: {q!r}\nAnswer: {answer}\nTokens: {usage}")

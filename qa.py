@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from audit import log_decline, log_unfaithful
+from audit import log_decline, log_unfaithful, log_usage
 from generate import generate_answer
 from guardrails import FaithfulnessCheck, check_faithfulness
 from retriever import RetrievedChunk, retrieve
@@ -15,11 +15,12 @@ class Answer:
     faithfulness: FaithfulnessCheck
 
 
-def answer_question(query: str, top_k: int = 5) -> Answer:
+def answer_question(query: str, top_k: int = 3) -> Answer:
     chunks = retrieve(query, top_k=top_k)
-    text = generate_answer(query, chunks)
-    faithfulness = check_faithfulness(text, chunks)
+    text, generation_usage = generate_answer(query, chunks)
+    faithfulness, guardrail_usage = check_faithfulness(text, chunks)
 
+    log_usage(query, generation_usage, guardrail_usage)
     if not chunks:
         log_decline(query)
     elif not faithfulness.is_faithful:
