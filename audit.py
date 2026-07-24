@@ -59,12 +59,35 @@ def log_unfaithful(
     )
 
 
-def log_usage(query: str, generation: TokenUsage, guardrail: TokenUsage) -> None:
+def log_corrected(
+    query: str,
+    original_answer: str,
+    corrected_answer: str,
+    unsupported_claims: list[str],
+) -> None:
+    """A first-pass answer was flagged, retried with the flagged claims as
+    feedback, and the retry passed -- so no warning was shown to the user,
+    but the correction is worth being able to review later."""
+    _append(
+        LOG_PATH,
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "trigger": "corrected_by_retry",
+            "query": query,
+            "original_answer": original_answer,
+            "corrected_answer": corrected_answer,
+            "unsupported_claims": unsupported_claims,
+        },
+    )
+
+
+def log_usage(query: str, generation: TokenUsage, guardrail: TokenUsage, retried: bool = False) -> None:
     _append(
         USAGE_LOG_PATH,
         {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "query": query,
+            "retried": retried,
             "generation_prompt_tokens": generation.prompt_tokens,
             "generation_completion_tokens": generation.completion_tokens,
             "guardrail_prompt_tokens": guardrail.prompt_tokens,

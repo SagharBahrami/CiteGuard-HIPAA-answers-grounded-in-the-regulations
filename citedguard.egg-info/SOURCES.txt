@@ -14,6 +14,9 @@ citedguard.egg-info/SOURCES.txt
 citedguard.egg-info/dependency_links.txt
 citedguard.egg-info/requires.txt
 citedguard.egg-info/top_level.txt
+evals/__init__.py
+evals/cases.py
+evals/eval_guardrail.py
 ingest/__init__.py
 ingest/__main__.py
 ingest/chunk.py

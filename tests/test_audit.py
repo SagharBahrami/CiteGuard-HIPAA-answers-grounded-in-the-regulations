@@ -31,6 +31,20 @@ def test_log_unfaithful_writes_expected_fields(tmp_path, monkeypatch):
     assert entry["citations"] == ["45 CFR 164.312"]
 
 
+def test_log_corrected_writes_expected_fields(tmp_path, monkeypatch):
+    monkeypatch.setattr(audit, "LOG_PATH", tmp_path / "audit.jsonl")
+
+    audit.log_corrected("q", "original answer", "corrected answer", ["bad claim"])
+
+    entry = json.loads((tmp_path / "audit.jsonl").read_text().splitlines()[0])
+    assert entry["trigger"] == "corrected_by_retry"
+    assert entry["query"] == "q"
+    assert entry["original_answer"] == "original answer"
+    assert entry["corrected_answer"] == "corrected answer"
+    assert entry["unsupported_claims"] == ["bad claim"]
+    assert "timestamp" in entry
+
+
 def test_log_appends_rather_than_overwrites(tmp_path, monkeypatch):
     monkeypatch.setattr(audit, "LOG_PATH", tmp_path / "audit.jsonl")
 
@@ -59,12 +73,22 @@ def test_log_usage_writes_token_counts_for_both_calls(tmp_path, monkeypatch):
 
     entry = json.loads((tmp_path / "usage.jsonl").read_text().splitlines()[0])
     assert entry["query"] == "q"
+    assert entry["retried"] is False
     assert entry["generation_prompt_tokens"] == 100
     assert entry["generation_completion_tokens"] == 50
     assert entry["guardrail_prompt_tokens"] == 120
     assert entry["guardrail_completion_tokens"] == 20
     assert entry["total_tokens"] == 290
     assert "timestamp" in entry
+
+
+def test_log_usage_records_whether_a_retry_happened(tmp_path, monkeypatch):
+    monkeypatch.setattr(audit, "USAGE_LOG_PATH", tmp_path / "usage.jsonl")
+
+    audit.log_usage("q", TokenUsage.zero(), TokenUsage.zero(), retried=True)
+
+    entry = json.loads((tmp_path / "usage.jsonl").read_text().splitlines()[0])
+    assert entry["retried"] is True
 
 
 def test_log_usage_writes_to_a_separate_file_from_guardrail_triggers(tmp_path, monkeypatch):

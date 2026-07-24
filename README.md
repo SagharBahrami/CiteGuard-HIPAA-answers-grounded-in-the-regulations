@@ -262,26 +262,72 @@ implemented vs. planned.
 | 1 | **Relevance threshold** | `retriever.py` | **Fully implemented** | Chunks below `similarity_threshold` (0.35 cosine) are dropped before generation ever sees them. |
 | 2 | **Decline on empty context** | `generate.py` (`NO_CONTEXT_MESSAGE`) | **Fully implemented** | If retrieval returns zero chunks, a fixed decline message is returned *without calling the LLM at all* — no chance to hallucinate from general knowledge. |
 | 3 | **Grounding instruction (prompt-level)** | `generate.py` (`SYSTEM_PROMPT`) | **Fully implemented, soft guardrail** | Instructs the model to answer only from the provided excerpts, cite the specific CFR section per claim, and say explicitly when the excerpts don't fully answer the question. This relies on model compliance — it isn't verified, which is what guardrail #4 is for. |
-| 4 | **Faithfulness / groundedness check** | `guardrails.py` (`check_faithfulness`) | **Fully implemented, "warn" level** | A *second*, independent LLM call (`guardrail_model`, separate from `generation_model`) re-checks the generated answer against the same source excerpts and flags any claim not actually supported, via structured output (`is_faithful`, `unsupported_claims`, `explanation`). Verified against both a real answer (passed) and a deliberately fabricated one (correctly flagged, with the specific invented claim identified). |
+| 4 | **Faithfulness / groundedness check** | `guardrails.py` (`check_faithfulness`) | **Fully implemented** | A *second*, independent LLM call (`guardrail_model`, separate from `generation_model`) re-checks the generated answer against the same source excerpts and flags any claim not actually supported, via structured output (`is_faithful`, `unsupported_claims`, `explanation`). See [Evaluation](#evaluation) for measured accuracy: 100% recall, 55.6% precision. |
 | 5 | **Rescue-candidate sanity floor** | `retriever.py` (`RESCUE_SIMILARITY_THRESHOLD`) | **Fully implemented** | Prevents the BM25 rescue mechanism from pulling in chunks with no real semantic relationship to the query, just because of incidental keyword overlap with common regulatory vocabulary. |
+| 6 | **Corrective retry** | `qa.py` (`answer_question`), `generate.py` (`regenerate_answer`) | **Fully implemented** | If guardrail #4 flags an answer, it's regenerated once with the specific unsupported claims fed back as feedback ("this claim wasn't supported: X — remove it or ground it properly"), then re-checked. If the retry passes, the corrected answer is returned with **no warning shown** — the guardrail did its job silently. If it's still flagged, the retried answer is returned with the warning banner, same as before — not blocked. Verified against a real deliberately-fabricated answer (AES-256/24-hour-checksum claims that don't exist in the source): the retry removed both fabrications and replaced them with the actual regulatory text. |
+| 7 | **Audit logging** | `audit.py` | **Fully implemented** | Every empty-context decline, every *still*-unfaithful answer (post-retry), and every silent correction is appended as a JSON line to `logs/guardrail_audit.jsonl` (`log_decline` / `log_unfaithful` / `log_corrected`), including the query, answer text, unsupported claims, and citations — so guardrail activity can be reviewed later, including the corrections nobody saw a warning for. Logs full text verbatim (a deliberate choice for reviewability); `logs/` is gitignored since these entries carry the same sensitivity as whatever a user asked. |
 
-**What guardrail #4 currently does *not* do** (a deliberate choice, not a gap
-that was missed): when an answer is flagged unfaithful, it is **not**
-blocked or auto-retried — `qa.answer_question()` returns the answer *with*
-the faithfulness result attached, so a caller (e.g. the future UI) can show
-a warning banner. Two alternatives were considered and explicitly declined
-for now:
-- *Retry once with a stricter prompt* (feed the unsupported claims back in
-  and regenerate) — an extra LLM call, more likely to self-correct, not yet
-  built.
-- *Block and replace with a safe decline* — safest for compliance, but more
-  likely to unhelpfully refuse borderline-fine answers.
-
-| 6 | **Audit logging** | `audit.py` | **Fully implemented** | Every empty-context decline and every faithfulness failure is appended as a JSON line to `logs/guardrail_audit.jsonl`, including the query, generated answer, unsupported claims, and citations used — so guardrail triggers can be reviewed later instead of only existing for the life of the request. Logs full text verbatim (a deliberate choice for reviewability); `logs/` is gitignored since these entries carry the same sensitivity as whatever a user asked. |
+**Why blocking was rejected instead of just falling back to warn:**
+[Evaluation](#evaluation) measured the guardrail's precision at only
+55.6% — over a third of genuinely faithful answers get flagged. Hard-
+blocking (replacing any flagged answer, retried or not, with a safe decline)
+would incorrectly refuse a lot of fine answers on top of the real
+hallucinations it catches. Retry-then-warn targets the real fabrications
+(which the retry fixes, silently) without inheriting that false-block rate
+for the borderline cases that remain flagged after a retry.
 
 **Not implemented / not yet planned in detail:**
 - PII/PHI redaction of user input or model output.
 - Rate limiting or abuse controls.
+
+## Evaluation
+
+`evals/` measures the faithfulness guardrail's actual accuracy, rather than
+trusting it works from the single-example demo in `guardrails.py`'s
+`__main__` block. Separate from `tests/`: it makes real (paid, slightly
+non-deterministic) calls to `guardrail_model`, so it isn't run as part of
+`pytest` — run it deliberately, e.g. after changing the guardrail prompt or
+swapping models:
+
+```bash
+python -m evals.eval_guardrail
+```
+
+`evals/cases.py` hand-pairs 10 cases (5 genuinely faithful, 5 deliberately
+fabricated) with real chunks captured once via `retriever.retrieve` and
+frozen there, so the eval isolates the guardrail itself rather than also
+depending on retrieval. The script reports two different things, because
+they answer two different questions:
+
+**1. Direct check** (`check_faithfulness` alone, no retry) — is the
+guardrail model itself accurate? Measured: 100% recall (every fabricated
+claim was flagged — zero hallucinations slipped through unflagged), but only
+~55-62% precision (a third or more of genuinely faithful answers were
+flagged too, varying slightly run to run). Inspecting the false positives
+showed they were mostly the guardrail correctly catching minor paraphrase
+drift in the eval's own hand-written "faithful" answers (e.g. "contract" vs.
+the source's "contract or other arrangement") — not the guardrail
+misfiring. **The guardrail is calibrated stricter than a careful human
+paraphrase**, which also explains an earlier observation in this project:
+the same real question flipping between faithful/unfaithful across two
+separate runs, because normal generation-model paraphrasing sits close
+enough to that strict boundary to cross it either way.
+
+**2. Full pipeline** (mirrors `qa.answer_question`: retry once if flagged) —
+what does the user actually experience? This is *not* reported as
+precision/recall — when the corrective retry rewrites a fabricated answer
+into a genuinely accurate one (which it does; see guardrail #6), the case's
+"expected faithful" label was written for the *original* text and no longer
+describes what the user sees, so scoring that as a "false negative" would
+equate it with a real hallucination slipping through unflagged, when it's
+actually the best possible outcome. Instead each case is classified as
+`passed_clean` (never flagged), `corrected` (flagged, retry fixed it —
+accurate answer, no warning), `caught` (fabricated, still flagged — warning
+correctly shown), `false_alarm` (faithful, still wrongly flagged after
+retry), or `missed` (fabricated, never flagged at all — the only genuinely
+dangerous outcome). A representative run: 0/5 fabricated cases were
+`missed`, 0/5 faithful cases ended up a `false_alarm` — every case ended up
+either accurate-with-no-warning or accurately-flagged-with-a-warning.
 
 ## Token usage
 
@@ -317,10 +363,11 @@ the answer was still faithful with 3 sources instead of 5.
 | Ingestion pipeline (fetch/parse/chunk/embed/store) | Done |
 | Hybrid retrieval | Done |
 | Generation with citations | Done |
-| Faithfulness guardrail | Done (warn-only) |
+| Faithfulness guardrail | Done (corrective retry, falls back to warn) |
 | RQ worker / job queue | Done (`jobs.py`; UI questions + `--queue` ingestion) |
 | Streamlit UI | Done |
-| Test suite | Done (52 tests: chunk/parse/retriever/generate/guardrails/qa/audit/embed_store/fetch/usage/mcp_server/jobs) |
+| Test suite | Done (60 tests: chunk/parse/retriever/generate/guardrails/qa/audit/embed_store/fetch/usage/mcp_server/jobs) |
 | Token usage instrumentation | Done (`logs/token_usage.jsonl`, every question) |
 | MCP server | Done (`mcp_server.py`; `ask_hipaa_question` + `search_hipaa_regulations` tools) |
 | Docker deployment (Streamlit UI + Redis + worker) | Done (`Dockerfile`, `docker-compose.yml`) |
+| Guardrail eval harness | Done (`evals/`; direct-check + retry-aware reports, see Evaluation) |

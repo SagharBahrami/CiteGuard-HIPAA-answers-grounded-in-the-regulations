@@ -1,6 +1,6 @@
 from config import settings
 from conftest import DEFAULT_USAGE, FakeOpenAIClient
-from generate import NO_CONTEXT_MESSAGE, generate_answer
+from generate import NO_CONTEXT_MESSAGE, generate_answer, regenerate_answer
 from retriever import RetrievedChunk
 from usage import TokenUsage
 
@@ -43,3 +43,31 @@ def test_context_message_includes_citation_and_chunk_text():
     assert "45 CFR 164.312" in user_message
     assert "Specific encryption text." in user_message
     assert "q" in user_message
+
+
+def test_regenerate_answer_returns_corrected_text_and_usage():
+    client = FakeOpenAIClient(chat_content="Corrected answer citing 45 CFR 164.312.")
+
+    answer, usage = regenerate_answer(
+        "What are the technical safeguards?", [_chunk()], "Original unsupported answer.",
+        ["AES-256 is mandated"], client=client,
+    )
+
+    assert answer == "Corrected answer citing 45 CFR 164.312."
+    assert usage == TokenUsage.from_response(DEFAULT_USAGE)
+
+
+def test_regenerate_answer_prompt_includes_previous_answer_and_flagged_claims():
+    client = FakeOpenAIClient(chat_content="answer")
+
+    regenerate_answer(
+        "q", [_chunk(text="Specific encryption text.")], "The original flawed answer.",
+        ["AES-256 is mandated", "keys rotate every 90 days"], client=client,
+    )
+
+    _, _, messages = client.calls[0]
+    user_message = messages[1]["content"]
+    assert "The original flawed answer." in user_message
+    assert "AES-256 is mandated" in user_message
+    assert "keys rotate every 90 days" in user_message
+    assert "Specific encryption text." in user_message

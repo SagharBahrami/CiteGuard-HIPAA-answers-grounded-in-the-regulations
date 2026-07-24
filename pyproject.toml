@@ -25,7 +25,7 @@ dev = ["pytest>=8.0"]
 py-modules = ["config", "generate", "guardrails", "qa", "retriever", "audit", "usage", "mcp_server", "jobs"]
 
 [tool.setuptools.packages.find]
-include = ["ingest*"]
+include = ["ingest*", "evals*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
