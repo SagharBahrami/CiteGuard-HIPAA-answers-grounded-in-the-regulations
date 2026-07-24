@@ -4,11 +4,21 @@ Keeps the guardrail result visible rather than hiding it: every answer shows
 whether the faithfulness check passed, and flags the specific unsupported
 claims when it didn't, right alongside the source excerpts it was checked
 against.
+
+Questions are submitted through the Redis/RQ job queue (jobs.py) rather than
+calling answer_question directly, so a separate worker process does the
+actual OpenAI calls -- this naturally bounds how many questions run
+concurrently to however many workers are running, instead of one per
+Streamlit session. Requires a worker to be running (see README); if none is,
+this will hang in "Queued..." until one picks the job up.
 """
+
+import time
 
 import streamlit as st
 
-from qa import Answer, answer_question
+from jobs import enqueue_question
+from qa import Answer
 
 st.set_page_config(page_title="CitedGuard", page_icon="\U0001f4dc")
 
@@ -59,12 +69,14 @@ if question:
         st.markdown(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Retrieving and generating..."):
-            try:
-                answer = answer_question(question)
-            except Exception as e:
-                st.error(f"Something went wrong: {e}")
+        with st.spinner("Queued — retrieving and generating..."):
+            job = enqueue_question(question)
+            while job.get_status(refresh=True) not in ("finished", "failed"):
+                time.sleep(0.5)
+            if job.get_status() == "failed":
+                st.error(f"Something went wrong: {job.exc_info}")
                 st.stop()
+            answer = job.result
         render_answer(answer)
 
     st.session_state.history.append((question, answer))

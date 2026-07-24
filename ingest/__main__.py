@@ -39,5 +39,16 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Ingest HIPAA regulation text into Chroma")
     parser.add_argument("--force", action="store_true", help="Re-fetch parts even if already cached")
+    parser.add_argument(
+        "--queue", action="store_true",
+        help="Enqueue as a background RQ job instead of running inline (requires a worker: see jobs.py)",
+    )
     args = parser.parse_args()
-    run(force=args.force)
+
+    if args.queue:
+        from jobs import enqueue_ingestion
+
+        job = enqueue_ingestion(force=args.force)
+        print(f"Enqueued ingestion job {job.id}")
+    else:
+        run(force=args.force)

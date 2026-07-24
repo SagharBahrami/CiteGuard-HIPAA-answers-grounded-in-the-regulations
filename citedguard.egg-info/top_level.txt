@@ -3,6 +3,8 @@ config
 generate
 guardrails
 ingest
+jobs
+mcp_server
 qa
 retriever
 usage

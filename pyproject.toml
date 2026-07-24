@@ -15,13 +15,14 @@ dependencies = [
     "pydantic-settings>=2.5",
     "tenacity>=9.0",
     "rank-bm25>=0.2",
+    "mcp>=1.2",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
 [tool.setuptools]
-py-modules = ["config", "generate", "guardrails", "qa", "retriever", "audit", "usage"]
+py-modules = ["config", "generate", "guardrails", "qa", "retriever", "audit", "usage", "mcp_server", "jobs"]
 
 [tool.setuptools.packages.find]
 include = ["ingest*"]

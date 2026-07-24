@@ -3,8 +3,7 @@
 A retrieval-augmented Q&A system over 45 CFR Parts 160, 162, and 164 (the HIPAA
 Administrative Simplification regulations — Privacy Rule, Security Rule,
 transaction/code set standards, and identifiers), built as a learning project
-covering RAG, hybrid retrieval, LLM guardrails, and (planned) a Redis/RQ task
-queue.
+covering RAG, hybrid retrieval, LLM guardrails, and a Redis/RQ task queue.
 
 ## How it works
 
@@ -48,7 +47,7 @@ Config lives in `config.py` (via `pydantic-settings`, reading from `.env`):
 | `generation_model` | `gpt-5.6-terra` | Answers the question (only supports default temperature) |
 | `guardrail_model` | `gpt-5.6-luna` | Runs the faithfulness check |
 | `embedding_model` | `text-embedding-3-small` | Embeds chunks and queries |
-| `redis_url` | `redis://localhost:6379/0` | For the planned RQ worker (not yet built) |
+| `redis_url` | `redis://localhost:6379/0` | Where the RQ job queue connects (needs a running Redis; see below) |
 | `chroma_dir` | `./chroma_db` | Where the vector store persists |
 | `chroma_collection` | `hipaa_regs` | Collection name |
 | `similarity_threshold` | `0.35` | Minimum cosine similarity for a chunk to count as relevant |
@@ -63,13 +62,16 @@ python -m ingest          # skips parts already cached in data/raw/
 python -m ingest --force  # re-fetches everything
 ```
 
-**Ask a question:**
+**Ask a question** (calls `qa.answer_question` directly — synchronous, no
+Redis/worker needed):
 
 ```bash
 python -m qa
 ```
 
-**Or launch the chat UI:**
+**Or launch the chat UI** (goes through the Redis/RQ job queue instead of
+calling `answer_question` directly — needs Redis and a worker running; see
+[Background jobs](#background-jobs-redisrq) below):
 
 ```bash
 streamlit run app.py
@@ -86,6 +88,117 @@ print(result.faithfulness.is_faithful)
 for source in result.sources:
     print(source.citation, source.similarity)
 ```
+
+**Or expose it to an MCP client** (Claude Desktop, Claude Code, etc.) via
+`mcp_server.py`, which serves two tools over stdio:
+
+- `ask_hipaa_question(query, top_k=3)` — full pipeline (retrieval +
+  generation + faithfulness guardrail), returns the answer, faithfulness
+  result, and sources. Goes through the same Redis/RQ job queue as the
+  Streamlit UI (see [Background jobs](#background-jobs-redisrq) below) —
+  requires Redis and a worker running.
+- `search_hipaa_regulations(query, top_k=5)` — retrieval only, for when the
+  caller would rather read the source excerpts itself. No generation or
+  guardrail LLM calls, so it's cheaper.
+
+Add it to Claude Desktop's config (`claude_desktop_config.json`) or Claude
+Code's (`claude mcp add`):
+
+```json
+{
+  "mcpServers": {
+    "citedguard": {
+      "command": "/absolute/path/to/CitedGuard/.venv/Scripts/python.exe",
+      "args": ["mcp_server.py"],
+      "cwd": "/absolute/path/to/CitedGuard"
+    }
+  }
+}
+```
+
+or run it directly:
+
+```bash
+python mcp_server.py
+```
+
+## Background jobs (Redis/RQ)
+
+`jobs.py` defines an RQ queue that two things get submitted to instead of
+running inline:
+
+- `enqueue_question(query, top_k)` — used by both the Streamlit UI (`app.py`)
+  and the MCP server's `ask_hipaa_question` tool (`mcp_server.py`) for every
+  question. This is what lets either one handle multiple concurrent
+  callers without one blocking another; it also naturally caps how many
+  OpenAI calls run at once to however many workers are running, which
+  doubles as a crude form of the rate limiting the guardrails table above
+  flags as otherwise unimplemented. `search_hipaa_regulations` (the other
+  MCP tool) deliberately stays direct, not queued — it's cheap enough
+  (retrieval only, no generation) that queuing it would only add latency.
+- `enqueue_ingestion(force)` — used by `python -m ingest --queue`, for
+  running ingestion as a background job instead of a blocking CLI command.
+
+Either way, a **separate worker process** has to actually run the jobs —
+enqueuing one without a worker running just leaves it queued forever.
+
+**Concurrency is capped by the number of worker processes, not the number of
+users.** A single `rq worker` processes jobs strictly one at a time — extra
+submissions queue up and wait their turn, they don't fail. `docker-compose.yml`
+runs the `worker` service at `deploy.replicas: 4`, tested by enqueuing 4
+different questions simultaneously and confirming all 4 started in the same
+second on 4 separate workers and finished within a few seconds of each other
+(~18s total), instead of the ~60-70s it would take running one after another
+on a single worker. Raise or lower `replicas` to match expected concurrent
+users — but note this only removes *our own* bottleneck; OpenAI's own
+per-account rate limits (requests/tokens per minute) are a harder ceiling
+above that, and scaling workers past what your account tier allows just means
+more workers competing for the same capped throughput, not more real
+throughput.
+
+**Windows note:** RQ's default `Worker` class calls `os.fork()` to isolate
+each job in a child process, which doesn't exist on Windows — the worker
+starts fine but crashes the moment a job actually runs
+(`AttributeError: module 'os' has no attribute 'fork'`). Use RQ's fork-free
+`SimpleWorker` instead (this is what `docker-compose.yml`'s `worker` service
+also uses, for consistency across platforms):
+
+```bash
+rq worker citedguard --url redis://localhost:6379/0 --worker-class rq.SimpleWorker
+```
+
+(Requires a Redis instance reachable at that URL — `docker run -p 6379:6379 redis:7-alpine` is the fastest way to get one locally.)
+
+## Docker deployment
+
+`docker-compose.yml` runs three services from the one `Dockerfile` (which
+packages the Streamlit UI, `app.py`) — not the MCP server, which uses stdio
+transport and is meant to be launched locally by an MCP client rather than
+run standalone in a container:
+
+- **`redis`** — the job queue backend (`redis:7-alpine`, unmodified).
+- **`app`** — the Streamlit UI, submitting questions to the queue via
+  `REDIS_URL=redis://redis:6379/0` (Docker's internal networking — service
+  names resolve as hostnames between containers, unlike the `localhost` URL
+  used for local, non-Docker runs).
+- **`worker`** — runs `rq worker` with `--worker-class rq.SimpleWorker`
+  (needed so the same compose file also works when `docker compose` itself
+  is invoked from a Windows host).
+
+The image does **not** bake in `chroma_db/` (your ingested regulation data)
+or `.env` (secrets) — see `.dockerignore`. Both are supplied at run time
+instead: `chroma_db/` as a mounted volume, shared by both `app` and `worker`
+(so re-ingesting locally doesn't require rebuilding any image), and `.env` as
+environment variables (so the API key never ends up baked into an image
+layer).
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:8501. Requires `chroma_db/` to already exist
+locally (run ingestion first, outside Docker, if it doesn't) — the volume
+mount surfaces whatever's already there, it doesn't create it.
 
 ## Ingestion pipeline details
 
@@ -205,7 +318,9 @@ the answer was still faithful with 3 sources instead of 5.
 | Hybrid retrieval | Done |
 | Generation with citations | Done |
 | Faithfulness guardrail | Done (warn-only) |
-| RQ worker / job queue | Not started |
+| RQ worker / job queue | Done (`jobs.py`; UI questions + `--queue` ingestion) |
 | Streamlit UI | Done |
-| Test suite | Done (45 tests: chunk/parse/retriever/generate/guardrails/qa/audit/embed_store/fetch/usage) |
+| Test suite | Done (52 tests: chunk/parse/retriever/generate/guardrails/qa/audit/embed_store/fetch/usage/mcp_server/jobs) |
 | Token usage instrumentation | Done (`logs/token_usage.jsonl`, every question) |
+| MCP server | Done (`mcp_server.py`; `ask_hipaa_question` + `search_hipaa_regulations` tools) |
+| Docker deployment (Streamlit UI + Redis + worker) | Done (`Dockerfile`, `docker-compose.yml`) |
