@@ -4,13 +4,26 @@ Runs as a separate LLM call using guardrail_model, independent from the
 generation call, so it isn't just the same model defending its own answer.
 """
 
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI, RateLimitError
 from pydantic import BaseModel
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config import settings
 from retriever import RetrievedChunk
 from usage import TokenUsage
+
+_RETRYABLE = retry_if_exception_type(
+    (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)
+)
+
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=settings.openai_api_key)
+    return _client
 
 GUARDRAIL_SYSTEM_PROMPT = (
     "You are a fact-checker reviewing whether an AI-generated answer is fully "
@@ -32,7 +45,7 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(f"[{c.citation}] {c.heading}\n{c.text}" for c in chunks)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=_RETRYABLE)
 def check_faithfulness(
     answer: str,
     chunks: list[RetrievedChunk],
@@ -48,7 +61,7 @@ def check_faithfulness(
             TokenUsage.zero(),
         )
 
-    client = client or OpenAI(api_key=settings.openai_api_key)
+    client = client or _get_client()
     response = client.chat.completions.parse(
         model=settings.guardrail_model,
         response_format=FaithfulnessCheck,

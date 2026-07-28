@@ -85,6 +85,16 @@ def _get_corpus() -> _Corpus:
     return _corpus
 
 
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=settings.openai_api_key)
+    return _client
+
+
 _STOPWORDS = frozenset(
     """
     a an the and or but if then else when how what why where who whom which
@@ -121,7 +131,7 @@ def retrieve(
 ) -> list[RetrievedChunk]:
     corpus = _get_corpus()
 
-    client = client or OpenAI(api_key=settings.openai_api_key)
+    client = client or _get_client()
     query_embedding = np.array(embed_batch(client, [query], settings.embedding_model)[0])
     query_embedding = query_embedding / np.linalg.norm(query_embedding)
 

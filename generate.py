@@ -5,12 +5,25 @@ without calling the LLM at all -- there's no basis to answer from, so there's
 nothing for the model to usefully do with the question.
 """
 
-from openai import OpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential
+from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI, RateLimitError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config import settings
 from retriever import RetrievedChunk
 from usage import TokenUsage
+
+_RETRYABLE = retry_if_exception_type(
+    (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)
+)
+
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=settings.openai_api_key)
+    return _client
 
 NO_CONTEXT_MESSAGE = (
     "I don't have enough relevant information in the HIPAA regulations I have "
@@ -39,7 +52,7 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(f"[{c.citation}] {c.heading}\n{c.text}" for c in chunks)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=_RETRYABLE)
 def generate_answer(
     query: str,
     chunks: list[RetrievedChunk],
@@ -48,7 +61,7 @@ def generate_answer(
     if not chunks:
         return NO_CONTEXT_MESSAGE, TokenUsage.zero()
 
-    client = client or OpenAI(api_key=settings.openai_api_key)
+    client = client or _get_client()
     response = client.chat.completions.create(
         model=settings.generation_model,
         # generation_model only supports the default temperature (1), not 0
@@ -63,7 +76,7 @@ def generate_answer(
     return response.choices[0].message.content, TokenUsage.from_response(response.usage)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=_RETRYABLE)
 def regenerate_answer(
     query: str,
     chunks: list[RetrievedChunk],
@@ -71,7 +84,7 @@ def regenerate_answer(
     unsupported_claims: list[str],
     client: OpenAI | None = None,
 ) -> tuple[str, TokenUsage]:
-    client = client or OpenAI(api_key=settings.openai_api_key)
+    client = client or _get_client()
     flagged = "\n".join(f"- {c}" for c in unsupported_claims)
     response = client.chat.completions.create(
         model=settings.generation_model,
