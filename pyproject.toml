@@ -22,7 +22,10 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [tool.setuptools]
-py-modules = ["config", "generate", "guardrails", "qa", "retriever", "audit", "usage", "mcp_server", "jobs"]
+# Every top-level module that gets imported at runtime must be listed here;
+# setuptools will not discover them on its own. tests/test_packaging.py
+# fails if this list drifts out of sync with the modules on disk.
+py-modules = ["config", "generate", "guardrails", "qa", "retriever", "audit", "usage", "mcp_server", "jobs", "locks", "version_query"]
 
 [tool.setuptools.packages.find]
 include = ["ingest*", "evals*"]
