@@ -1,9 +1,13 @@
-"""Shared test helpers -- a minimal stand-in for openai.OpenAI covering only
-the calls this project actually makes (embeddings.create, chat.completions
-.create, chat.completions.parse), so tests never hit the real API.
+"""Shared test helpers -- minimal stand-ins for the external services this
+project talks to: openai.OpenAI (covering only embeddings.create,
+chat.completions.create and chat.completions.parse) and redis.Redis (covering
+only .lock()), so tests never hit the real API or need a Redis running.
 """
 
 import types
+
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import LockNotOwnedError
 
 DEFAULT_USAGE = types.SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15)
 
@@ -37,4 +41,46 @@ class FakeOpenAIClient:
         return types.SimpleNamespace(
             choices=[types.SimpleNamespace(message=types.SimpleNamespace(parsed=self._parsed_result))],
             usage=self._usage,
+        )
+
+
+class FakeRedisLock:
+    """Mimics redis.lock.Lock's non-blocking acquire/release ownership rules."""
+
+    def __init__(self, store, name, unreachable=False, expire_on_release=False):
+        self._store = store
+        self._name = name
+        self._unreachable = unreachable
+        self._expire_on_release = expire_on_release
+
+    def acquire(self, blocking=None, blocking_timeout=None, token=None):
+        if self._unreachable:
+            raise RedisConnectionError("connection refused")
+        if self._name in self._store:
+            return False
+        self._store[self._name] = self
+        return True
+
+    def release(self):
+        if self._expire_on_release:
+            self._store.pop(self._name, None)
+            raise LockNotOwnedError("lock expired before release")
+        if self._store.get(self._name) is not self:
+            raise LockNotOwnedError("not owned")
+        del self._store[self._name]
+
+
+class FakeRedis:
+    """Minimal stand-in for redis.Redis covering only .lock()."""
+
+    def __init__(self, held=(), unreachable=False, expire_on_release=False):
+        self.store = {name: object() for name in held}
+        self._unreachable = unreachable
+        self._expire_on_release = expire_on_release
+
+    def lock(self, name, timeout=None, **kwargs):
+        return FakeRedisLock(
+            self.store, name,
+            unreachable=self._unreachable,
+            expire_on_release=self._expire_on_release,
         )

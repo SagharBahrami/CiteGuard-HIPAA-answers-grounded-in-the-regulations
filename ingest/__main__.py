@@ -12,27 +12,43 @@ from ingest.fetch import PARTS, TITLE, fetch_all_parts
 from ingest.parse import parse_all
 from ingest.chunk import chunk_all
 from ingest.embed_store import store_chunks
+from locks import INGESTION_LOCK, try_lock
 
 logger = logging.getLogger(__name__)
 
 
-def run(force: bool = False) -> None:
-    raw_paths = fetch_all_parts(Path("data/raw"), parts=PARTS, force=force)
-    logger.info("Fetched %d parts of Title %d", len(raw_paths), TITLE)
+def run(force: bool = False) -> bool:
+    """Ingest the corpus, unless another run already holds the ingestion lock.
 
-    sections = parse_all(raw_paths)
-    logger.info("Parsed %d sections", len(sections))
+    Returns True if ingestion actually ran, False if it was skipped because a
+    run was already in flight (see locks.py for why skipping beats waiting).
+    """
+    with try_lock(INGESTION_LOCK) as acquired:
+        if not acquired:
+            logger.warning("Another ingestion is already in progress -- skipping this run")
+            return False
 
-    chunks = chunk_all(sections)
-    logger.info("Built %d chunks", len(chunks))
+        issue_date, raw_paths = fetch_all_parts(Path("data/raw"), parts=PARTS, force=force)
+        logger.info("Fetched %d parts of Title %d as of %s", len(raw_paths), TITLE, issue_date)
 
-    store_chunks(
-        chunks,
-        persist_dir=Path(settings.chroma_dir),
-        collection_name=settings.chroma_collection,
-        model=settings.embedding_model,
-    )
-    logger.info("Ingestion complete: %d chunks in collection %r", len(chunks), settings.chroma_collection)
+        sections = parse_all(raw_paths, issue_date)
+        logger.info("Parsed %d sections", len(sections))
+
+        chunks = chunk_all(sections)
+        logger.info("Built %d chunks", len(chunks))
+
+        store_chunks(
+            chunks,
+            persist_dir=Path(settings.chroma_dir),
+            collection_name=settings.chroma_collection,
+            model=settings.embedding_model,
+            history_db_path=Path(settings.history_db),
+        )
+        logger.info(
+            "Ingestion complete: %d chunks in collection %r (issue date %s)",
+            len(chunks), settings.chroma_collection, issue_date,
+        )
+        return True
 
 
 if __name__ == "__main__":
@@ -50,5 +66,5 @@ if __name__ == "__main__":
 
         job = enqueue_ingestion(force=args.force)
         print(f"Enqueued ingestion job {job.id}")
-    else:
-        run(force=args.force)
+    elif not run(force=args.force):
+        print("Skipped: another ingestion is already in progress.")

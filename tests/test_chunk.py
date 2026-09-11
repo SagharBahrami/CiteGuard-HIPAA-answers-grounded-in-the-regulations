@@ -2,8 +2,11 @@ from ingest.chunk import chunk_all, chunk_section
 from ingest.parse import Section
 
 
-def _section(paragraphs, citation="45 CFR 164.100"):
-    return Section(part=164, subpart="Test Subpart", citation=citation, heading="Test Heading", paragraphs=paragraphs)
+def _section(paragraphs, citation="45 CFR 164.100", issue_date="2026-01-01"):
+    return Section(
+        part=164, subpart="Test Subpart", citation=citation, heading="Test Heading",
+        issue_date=issue_date, paragraphs=paragraphs,
+    )
 
 
 def test_empty_section_produces_no_chunks():
@@ -21,6 +24,7 @@ def test_short_section_stays_as_one_chunk():
     assert chunks[0].total_chunks == 1
     assert chunks[0].citation == section.citation
     assert chunks[0].heading == section.heading
+    assert chunks[0].issue_date == section.issue_date
 
 
 def test_long_section_splits_only_at_paragraph_boundaries():

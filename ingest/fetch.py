@@ -38,18 +38,26 @@ def fetch_part_xml(title: int, part: int, issue_date: str) -> bytes:
     return resp.content
 
 
-def fetch_all_parts(raw_dir: Path, parts: list[int] = PARTS, force: bool = False) -> dict[int, Path]:
+def fetch_all_parts(
+    raw_dir: Path, parts: list[int] = PARTS, force: bool = False
+) -> tuple[str, dict[int, Path]]:
     """Fetch each part's XML into raw_dir, skipping parts already cached on disk.
 
-    Returns a mapping of part number -> path to its cached XML file.
+    Each issue date gets its own subdirectory, so a newer eCFR revision is
+    fetched alongside (not over) older ones -- raw_dir doubles as the
+    historical snapshot archive of what eCFR actually published on each date.
+
+    Returns the issue date used and a mapping of part number -> cached XML path.
     """
-    raw_dir.mkdir(parents=True, exist_ok=True)
     issue_date = get_current_issue_date(TITLE)
     logger.info("Using eCFR title %s issue date %s", TITLE, issue_date)
 
+    issue_dir = raw_dir / issue_date
+    issue_dir.mkdir(parents=True, exist_ok=True)
+
     paths: dict[int, Path] = {}
     for part in parts:
-        dest = raw_dir / f"title-{TITLE}-part-{part}.xml"
+        dest = issue_dir / f"title-{TITLE}-part-{part}.xml"
         if dest.exists() and not force:
             logger.info("Part %s already cached at %s, skipping fetch", part, dest)
         else:
@@ -57,11 +65,12 @@ def fetch_all_parts(raw_dir: Path, parts: list[int] = PARTS, force: bool = False
             content = fetch_part_xml(TITLE, part, issue_date)
             dest.write_bytes(content)
         paths[part] = dest
-    return paths
+    return issue_date, paths
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    result = fetch_all_parts(Path("data/raw"))
+    issue_date, result = fetch_all_parts(Path("data/raw"))
+    print(f"Issue date: {issue_date}")
     for part, path in result.items():
         print(f"Part {part}: {path} ({path.stat().st_size:,} bytes)")

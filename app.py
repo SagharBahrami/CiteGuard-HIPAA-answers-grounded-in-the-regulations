@@ -34,6 +34,24 @@ if "history" not in st.session_state:
 
 
 def render_answer(answer: Answer) -> None:
+    dates = sorted({s.issue_date for s in answer.sources if s.issue_date})
+    as_of = f" (as of {', '.join(dates)})" if dates else ""
+
+    if answer.historical:
+        st.info(
+            f"This question was read as asking about a past version of the "
+            f"regulation, so it was answered from archived text{as_of} — not "
+            f"from what currently applies.",
+            icon="🕓",
+        )
+    elif answer.history_unavailable:
+        st.warning(
+            f"This question was read as asking about a past version, but no "
+            f"archived version is on record for that date. The answer below "
+            f"reflects the regulation as it currently stands{as_of}.",
+            icon="⚠️",
+        )
+
     st.markdown(answer.text)
 
     if not answer.faithfulness.is_faithful:
@@ -48,8 +66,9 @@ def render_answer(answer: Answer) -> None:
     if answer.sources:
         with st.expander(f"Sources ({len(answer.sources)})"):
             for source in answer.sources:
+                issue_date_note = f", as of {source.issue_date}" if source.issue_date else ""
                 st.markdown(
-                    f"**{source.citation}** — {source.heading} "
+                    f"**{source.citation}**{issue_date_note} — {source.heading} "
                     f"(similarity={source.similarity:.3f})"
                 )
                 st.text(source.text)

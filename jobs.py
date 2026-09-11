@@ -31,5 +31,16 @@ def enqueue_ingestion(force: bool = False) -> Job:
     return queue.enqueue(run, force=force, job_timeout="30m")
 
 
+def enqueue_update_check() -> Job:
+    """Check eCFR for a newer issue date and re-ingest only if one exists.
+
+    Schedule this on a recurring trigger (cron, RQ-scheduler) to pick up
+    regulatory changes automatically -- see ingest/update_check.py.
+    """
+    from ingest.update_check import check_and_maybe_ingest
+
+    return queue.enqueue(check_and_maybe_ingest, job_timeout="30m")
+
+
 def get_job(job_id: str) -> Job:
     return Job.fetch(job_id, connection=_redis)

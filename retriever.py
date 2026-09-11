@@ -54,6 +54,22 @@ class RetrievedChunk:
     subpart: str
     text: str
     similarity: float
+    issue_date: str = ""
+    chunk_index: int = 1
+
+
+def format_context(chunks: list[RetrievedChunk]) -> str:
+    """Render chunks as labeled excerpts for a prompt.
+
+    Shared by generate.py and guardrails.py rather than duplicated: the
+    guardrail is told not to flag an answer for citing the issue date its
+    excerpts carry, so it has to be looking at the same labels the generator
+    was given.
+    """
+    def label(c: RetrievedChunk) -> str:
+        return f"{c.citation}, as of {c.issue_date}" if c.issue_date else c.citation
+
+    return "\n\n".join(f"[{label(c)}] {c.heading}\n{c.text}" for c in chunks)
 
 
 class _Corpus:
@@ -121,6 +137,8 @@ def _to_chunk(corpus: _Corpus, index: int, similarity: float) -> RetrievedChunk:
         subpart=meta["subpart"],
         text=corpus.documents[index],
         similarity=similarity,
+        issue_date=meta.get("issue_date", ""),
+        chunk_index=meta.get("chunk_index", 1),
     )
 
 

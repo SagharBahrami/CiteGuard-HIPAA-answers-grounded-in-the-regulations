@@ -28,29 +28,35 @@ def _write(tmp_path, xml=XML):
 
 
 def test_extracts_sections_in_document_order(tmp_path):
-    sections = parse_part_xml(_write(tmp_path))
+    sections = parse_part_xml(_write(tmp_path), issue_date="2026-01-01")
 
     assert [s.citation for s in sections] == ["45 CFR 164.312", "45 CFR 164.400"]
     assert [s.heading for s in sections] == ["Technical safeguards.", "Applicability."]
     assert all(s.part == 164 for s in sections)
 
 
+def test_sections_carry_the_issue_date_they_were_fetched_at(tmp_path):
+    sections = parse_part_xml(_write(tmp_path), issue_date="2026-01-01")
+
+    assert all(s.issue_date == "2026-01-01" for s in sections)
+
+
 def test_sections_track_the_most_recent_subpart(tmp_path):
-    sections = parse_part_xml(_write(tmp_path))
+    sections = parse_part_xml(_write(tmp_path), issue_date="2026-01-01")
 
     assert sections[0].subpart == "Subpart C - Security Standards"
     assert sections[1].subpart == "Subpart D - Notification"
 
 
 def test_paragraph_whitespace_is_collapsed(tmp_path):
-    sections = parse_part_xml(_write(tmp_path))
+    sections = parse_part_xml(_write(tmp_path), issue_date="2026-01-01")
 
     assert sections[0].paragraphs[0] == "(a) Standard: Access control."
     assert sections[0].paragraphs[1] == "(b) Standard: Audit controls."
 
 
 def test_section_text_property_joins_paragraphs_with_newlines(tmp_path):
-    sections = parse_part_xml(_write(tmp_path))
+    sections = parse_part_xml(_write(tmp_path), issue_date="2026-01-01")
 
     assert sections[0].text == "(a) Standard: Access control.\n(b) Standard: Audit controls."
 
@@ -63,7 +69,7 @@ def test_section_with_no_head_gets_empty_heading(tmp_path):
       </ELEM>
     </ROOT>
     """
-    sections = parse_part_xml(_write(tmp_path, xml))
+    sections = parse_part_xml(_write(tmp_path, xml), issue_date="2026-01-01")
 
     assert sections[0].heading == ""
     assert sections[0].subpart is None

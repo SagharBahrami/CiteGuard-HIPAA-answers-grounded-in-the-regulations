@@ -9,7 +9,7 @@ from openai import APIConnectionError, APITimeoutError, InternalServerError, Ope
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config import settings
-from retriever import RetrievedChunk
+from retriever import RetrievedChunk, format_context
 from usage import TokenUsage
 
 _RETRYABLE = retry_if_exception_type(
@@ -38,6 +38,18 @@ SYSTEM_PROMPT = (
     "answer it at all, say so explicitly instead of filling the gap yourself."
 )
 
+HISTORICAL_SYSTEM_PROMPT = (
+    "You are a HIPAA compliance assistant. The user is asking about a PAST "
+    "version of the regulation, and the excerpts below are that past version, "
+    "each labeled with the issue date it was in effect. Answer using ONLY "
+    "these excerpts -- do not use outside knowledge. For every claim, cite the "
+    "specific CFR section AND its issue date (e.g. '45 CFR 164.312, as of "
+    "2023-01-01'). Explicitly state, near the start of your answer, that this "
+    "describes a past/superseded version and may not reflect what currently "
+    "applies. If the excerpts only partially answer the question, or don't "
+    "answer it at all, say so explicitly instead of filling the gap yourself."
+)
+
 CORRECTION_SYSTEM_PROMPT = (
     "You are a HIPAA compliance assistant revising a previous answer that an "
     "independent fact-checker flagged as containing claims not supported by the "
@@ -47,9 +59,18 @@ CORRECTION_SYSTEM_PROMPT = (
     "answered, say so explicitly rather than filling the gap yourself."
 )
 
-
-def _format_context(chunks: list[RetrievedChunk]) -> str:
-    return "\n\n".join(f"[{c.citation}] {c.heading}\n{c.text}" for c in chunks)
+HISTORICAL_CORRECTION_SYSTEM_PROMPT = (
+    "You are a HIPAA compliance assistant revising a previous answer that an "
+    "independent fact-checker flagged as containing claims not supported by the "
+    "provided regulation excerpts. The excerpts are a PAST version of the "
+    "regulation, each labeled with the issue date it was in effect -- produce "
+    "a corrected answer using ONLY these excerpts, remove or fix each flagged "
+    "claim without inventing new ones, and keep citing each claim's CFR "
+    "section AND issue date. Keep stating explicitly that this describes a "
+    "past/superseded version that may not reflect what currently applies. If "
+    "removing the unsupported claims leaves the question only partially "
+    "answered, say so explicitly rather than filling the gap yourself."
+)
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=_RETRYABLE)
@@ -57,6 +78,7 @@ def generate_answer(
     query: str,
     chunks: list[RetrievedChunk],
     client: OpenAI | None = None,
+    historical: bool = False,
 ) -> tuple[str, TokenUsage]:
     if not chunks:
         return NO_CONTEXT_MESSAGE, TokenUsage.zero()
@@ -66,10 +88,10 @@ def generate_answer(
         model=settings.generation_model,
         # generation_model only supports the default temperature (1), not 0
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": HISTORICAL_SYSTEM_PROMPT if historical else SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": f"Regulation excerpts:\n\n{_format_context(chunks)}\n\nQuestion: {query}",
+                "content": f"Regulation excerpts:\n\n{format_context(chunks)}\n\nQuestion: {query}",
             },
         ],
     )
@@ -83,17 +105,18 @@ def regenerate_answer(
     previous_answer: str,
     unsupported_claims: list[str],
     client: OpenAI | None = None,
+    historical: bool = False,
 ) -> tuple[str, TokenUsage]:
     client = client or _get_client()
     flagged = "\n".join(f"- {c}" for c in unsupported_claims)
     response = client.chat.completions.create(
         model=settings.generation_model,
         messages=[
-            {"role": "system", "content": CORRECTION_SYSTEM_PROMPT},
+            {"role": "system", "content": HISTORICAL_CORRECTION_SYSTEM_PROMPT if historical else CORRECTION_SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": (
-                    f"Regulation excerpts:\n\n{_format_context(chunks)}\n\n"
+                    f"Regulation excerpts:\n\n{format_context(chunks)}\n\n"
                     f"Question: {query}\n\n"
                     f"Previous answer:\n{previous_answer}\n\n"
                     f"Claims flagged as NOT supported by the excerpts:\n{flagged}"

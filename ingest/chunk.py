@@ -28,6 +28,7 @@ class Chunk:
     text: str
     chunk_index: int
     total_chunks: int
+    issue_date: str
 
 
 def chunk_section(section: Section, max_chars: int = MAX_CHARS) -> list[Chunk]:
@@ -61,6 +62,7 @@ def chunk_section(section: Section, max_chars: int = MAX_CHARS) -> list[Chunk]:
             text="\n".join(group),
             chunk_index=i + 1,
             total_chunks=total,
+            issue_date=section.issue_date,
         )
         for i, group in enumerate(groups)
     ]
@@ -76,11 +78,11 @@ def chunk_all(sections: list[Section], max_chars: int = MAX_CHARS) -> list[Chunk
 if __name__ == "__main__":
     from pathlib import Path
 
-    from ingest.fetch import PARTS, TITLE
+    from ingest.fetch import PARTS, fetch_all_parts
     from ingest.parse import parse_all
 
-    paths = {p: Path(f"data/raw/title-{TITLE}-part-{p}.xml") for p in PARTS}
-    all_sections = parse_all(paths)
+    issue_date, paths = fetch_all_parts(Path("data/raw"), parts=PARTS)
+    all_sections = parse_all(paths, issue_date)
     all_chunks = chunk_all(all_sections)
 
     print(f"{len(all_sections)} sections -> {len(all_chunks)} chunks")

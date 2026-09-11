@@ -1,6 +1,7 @@
 .env
 chroma_db/
 data/raw/
+data/history.sqlite3
 __pycache__/
 *.pyc
 .venv/

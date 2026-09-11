@@ -22,7 +22,9 @@ def test_get_current_issue_date_finds_matching_title(monkeypatch):
 def test_fetch_all_parts_skips_files_already_cached(tmp_path, monkeypatch):
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
-    cached = raw_dir / f"title-{TITLE}-part-160.xml"
+    issue_dir = raw_dir / "2026-01-01"
+    issue_dir.mkdir()
+    cached = issue_dir / f"title-{TITLE}-part-160.xml"
     cached.write_bytes(b"cached content")
 
     fetched_parts = []
@@ -41,7 +43,9 @@ def test_fetch_all_parts_skips_files_already_cached(tmp_path, monkeypatch):
 def test_fetch_all_parts_force_refetches_even_cached_files(tmp_path, monkeypatch):
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
-    cached = raw_dir / f"title-{TITLE}-part-160.xml"
+    issue_dir = raw_dir / "2026-01-01"
+    issue_dir.mkdir()
+    cached = issue_dir / f"title-{TITLE}-part-160.xml"
     cached.write_bytes(b"stale content")
 
     monkeypatch.setattr(fetch, "get_current_issue_date", lambda title: "2026-01-01")
@@ -52,12 +56,29 @@ def test_fetch_all_parts_force_refetches_even_cached_files(tmp_path, monkeypatch
     assert cached.read_bytes() == b"new content"
 
 
-def test_fetch_all_parts_returns_path_mapping_for_every_part(tmp_path, monkeypatch):
+def test_fetch_all_parts_returns_issue_date_and_path_mapping_for_every_part(tmp_path, monkeypatch):
     raw_dir = tmp_path / "raw"
     monkeypatch.setattr(fetch, "get_current_issue_date", lambda title: "2026-01-01")
     monkeypatch.setattr(fetch, "fetch_part_xml", lambda title, part, issue_date: b"content")
 
-    paths = fetch_all_parts(raw_dir, parts=[160, 162, 164], force=False)
+    issue_date, paths = fetch_all_parts(raw_dir, parts=[160, 162, 164], force=False)
 
+    assert issue_date == "2026-01-01"
     assert set(paths.keys()) == {160, 162, 164}
     assert all(p.exists() for p in paths.values())
+
+
+def test_fetch_all_parts_keeps_prior_issue_dates_on_disk_as_snapshots(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "raw"
+    monkeypatch.setattr(fetch, "fetch_part_xml", lambda title, part, issue_date: issue_date.encode())
+
+    monkeypatch.setattr(fetch, "get_current_issue_date", lambda title: "2026-01-01")
+    fetch_all_parts(raw_dir, parts=[160], force=False)
+
+    monkeypatch.setattr(fetch, "get_current_issue_date", lambda title: "2026-07-02")
+    fetch_all_parts(raw_dir, parts=[160], force=False)
+
+    old_snapshot = raw_dir / "2026-01-01" / f"title-{TITLE}-part-160.xml"
+    new_snapshot = raw_dir / "2026-07-02" / f"title-{TITLE}-part-160.xml"
+    assert old_snapshot.read_bytes() == b"2026-01-01"
+    assert new_snapshot.read_bytes() == b"2026-07-02"

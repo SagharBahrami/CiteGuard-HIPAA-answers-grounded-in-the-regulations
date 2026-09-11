@@ -205,24 +205,49 @@ mount surfaces whatever's already there, it doesn't create it.
 - **`ingest/fetch.py`** — Downloads raw XML for Parts 160/162/164 from
   eCFR's Content Versioner API (`api.ecfr.gov`), not by scraping
   `www.ecfr.gov` directly — the rendered site actively blocks scraping with
-  a CAPTCHA wall. Caches to `data/raw/`; skips parts already on disk unless
-  `force=True`.
+  a CAPTCHA wall. Caches to `data/raw/<issue_date>/`, one subdirectory per
+  eCFR issue date, so a newer revision is fetched alongside (not over) older
+  ones — `data/raw/` doubles as the historical snapshot archive of every raw
+  XML eCFR has published. Skips parts already cached for that issue date
+  unless `force=True`.
 - **`ingest/parse.py`** — Parses each part's XML into `Section` records
-  (citation, heading, part, subpart, ordered paragraphs). The `(a)/(1)/(i)`
-  legal outline within a section is flat text in the XML, not real nesting,
-  so it isn't reconstructed here.
-- **`ingest/chunk.py`** — Turns each `Section` into one or more `Chunk`s.
-  A section under ~1500 characters stays whole; longer ones are split by
-  greedily packing paragraphs up to that size, **splitting only at paragraph
-  boundaries** (never mid-sentence). Split chunks repeat their previous
-  chunk's last paragraph as lead-in context, so a chunk retrieved on its own
-  isn't missing the requirement/standard it's an implementation detail of.
+  (citation, heading, part, subpart, issue date, ordered paragraphs). The
+  `(a)/(1)/(i)` legal outline within a section is flat text in the XML, not
+  real nesting, so it isn't reconstructed here.
+- **`ingest/chunk.py`** — Turns each `Section` into one or more `Chunk`s,
+  carrying its issue date along. A section under ~1500 characters stays
+  whole; longer ones are split by greedily packing paragraphs up to that
+  size, **splitting only at paragraph boundaries** (never mid-sentence).
+  Split chunks repeat their previous chunk's last paragraph as lead-in
+  context, so a chunk retrieved on its own isn't missing the
+  requirement/standard it's an implementation detail of.
 - **`ingest/embed_store.py`** — Embeds chunks in batches of 100 via the
   OpenAI embeddings API and upserts them into Chroma with deterministic IDs
-  (`<section>_<chunk_index>`), so re-running ingestion updates existing rows
-  instead of duplicating them. The Chroma collection is explicitly created
-  with `hnsw:space=cosine` so similarity scores have a well-defined meaning
-  (`1 - distance`).
+  (`<section>_<chunk_index>`) and an `issue_date` metadata field, so
+  re-running ingestion updates existing rows instead of duplicating them.
+  Before any upsert or delete, whatever version it's about to overwrite is
+  archived to `ingest/history.py`'s SQLite table first (and that archive
+  write is committed before the Chroma call runs) — Chroma only ever holds
+  the current version of each chunk, but nothing superseded or removed is
+  lost. The Chroma collection is explicitly created with `hnsw:space=cosine`
+  so similarity scores have a well-defined meaning (`1 - distance`).
+- **`ingest/update_check.py`** — Compares eCFR's latest published issue date
+  against what's currently in Chroma and re-ingests only when they differ.
+  Enqueue it on a schedule via `jobs.enqueue_update_check()` to pick up
+  regulatory changes automatically instead of relying on someone running
+  `python -m ingest` by hand.
+- **`locks.py`** — A Redis lock serializing ingestion runs. Chroma's local
+  persistent client and the SQLite archive both assume a single writer, but
+  docker-compose runs four worker replicas and a scheduled update check can
+  fire while a manual `python -m ingest` is still going. The lock is
+  **skip-if-held, not wait-your-turn**: a second run started mid-flight has
+  nothing new to do, and queueing behind the lock only to re-embed the whole
+  corpus would cost real money for no change — so `run()` returns `False`
+  and exits instead. A 30-minute TTL keeps a killed worker from wedging
+  ingestion. Redis is optional here (only the RQ queue requires it), so if
+  it's unreachable ingestion logs a warning and proceeds unlocked — with
+  Redis down the workers can't run either, leaving a manual CLI run as the
+  only caller, with nothing to race.
 
 Current corpus: 148 sections -> 427 chunks.
 
@@ -250,6 +275,45 @@ Hybrid search, but not naive rank fusion:
 - Results are deduplicated by citation (best chunk per section) so the
   top-k spans distinct sections instead of several slots going to the same
   long section.
+
+## Historical version queries (`version_query.py`)
+
+Chroma holds only the current version of each chunk, so retrieval always
+answers from what applies today — unless the question is specifically asking
+about a past version, in which case the retrieved chunks are re-resolved
+against the SQLite history archive before generation.
+
+- **Detection is a deterministic pattern match, not another LLM call.** The
+  two failure directions aren't symmetric: missing a historical question just
+  means the user gets today's rule and can re-ask, but a false positive would
+  silently answer an ordinary compliance question from a no-longer-binding
+  rule. So the patterns are narrow — "previous version", "used to require",
+  "repealed", "before the 2023 amendment" trigger it; a bare "before" or
+  "change" (as in "what must happen *before* disclosing PHI") does not.
+- **Resolution is point-in-time.** Retrieval still runs normally first — it's
+  what finds *which* sections are relevant — and only then does
+  `resolve_as_of` swap each chunk's text for whichever version (current or
+  archived) was in effect at the requested date. With no parseable date, it
+  falls back to the most recently superseded version.
+- **The answer says so.** A historical resolution switches generation to a
+  system prompt that requires stating up front that the answer describes a
+  superseded version, cites each claim with its issue date, and sets
+  `Answer.historical` — which the Streamlit UI renders as a banner and the
+  MCP `ask_hipaa_question` tool returns as a field.
+- **Asking for a past version doesn't mean one exists.** The archive only
+  reaches back to the first ingestion that superseded something, so until
+  eCFR publishes a second issue date there is nothing older to return. When
+  resolution can't reach the requested date it keeps the current text and
+  sets `Answer.history_unavailable` instead of `historical` — the answer is
+  generated with the normal current-version prompt and the UI says the
+  archive doesn't go back that far. Framing today's rule as "a superseded
+  version" would be precisely the wrong error for a compliance answer.
+- **The faithfulness guardrail gets a matching carve-out.** That required
+  disclaimer is by definition not supported by any excerpt, so without a
+  carve-out the guardrail would flag it on *every* historical answer —
+  spuriously warning the user and burning a corrective retry that's
+  instructed to keep the disclaimer anyway. In historical mode the guardrail
+  is told to judge only regulatory substance, not the version framing.
 
 ## Guardrails
 

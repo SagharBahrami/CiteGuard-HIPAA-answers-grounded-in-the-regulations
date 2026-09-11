@@ -6,8 +6,11 @@ from qa import Answer
 from retriever import RetrievedChunk
 
 
-def _chunk(citation="45 CFR 164.312", text="Encrypt ePHI."):
-    return RetrievedChunk(citation=citation, heading="Technical safeguards", part=164, subpart="", text=text, similarity=0.876)
+def _chunk(citation="45 CFR 164.312", text="Encrypt ePHI.", issue_date="2026-01-01"):
+    return RetrievedChunk(
+        citation=citation, heading="Technical safeguards", part=164, subpart="", text=text, similarity=0.876,
+        issue_date=issue_date,
+    )
 
 
 class _FakeJob:
@@ -39,7 +42,14 @@ def test_ask_hipaa_question_shapes_the_full_answer(monkeypatch):
         "answer": "Encrypt ePHI in transit and at rest.",
         "is_faithful": True,
         "unsupported_claims": [],
-        "sources": [{"citation": "45 CFR 164.312", "heading": "Technical safeguards", "similarity": 0.876}],
+        "historical": False,
+        "history_unavailable": False,
+        "sources": [
+            {
+                "citation": "45 CFR 164.312", "heading": "Technical safeguards", "similarity": 0.876,
+                "issue_date": "2026-01-01",
+            }
+        ],
     }
 
 
@@ -79,8 +89,14 @@ def test_search_hipaa_regulations_returns_raw_excerpts(monkeypatch):
 
     assert calls == [("access control", 5)]
     assert result == [
-        {"citation": "45 CFR 1", "heading": "Technical safeguards", "similarity": 0.876, "text": "alpha"},
-        {"citation": "45 CFR 2", "heading": "Technical safeguards", "similarity": 0.876, "text": "beta"},
+        {
+            "citation": "45 CFR 1", "heading": "Technical safeguards", "similarity": 0.876,
+            "issue_date": "2026-01-01", "text": "alpha",
+        },
+        {
+            "citation": "45 CFR 2", "heading": "Technical safeguards", "similarity": 0.876,
+            "issue_date": "2026-01-01", "text": "beta",
+        },
     ]
 
 

@@ -1,13 +1,22 @@
 from config import settings
 from conftest import DEFAULT_USAGE, FakeOpenAIClient
-from generate import NO_CONTEXT_MESSAGE, generate_answer, regenerate_answer
+from generate import (
+    CORRECTION_SYSTEM_PROMPT,
+    HISTORICAL_CORRECTION_SYSTEM_PROMPT,
+    HISTORICAL_SYSTEM_PROMPT,
+    NO_CONTEXT_MESSAGE,
+    SYSTEM_PROMPT,
+    generate_answer,
+    regenerate_answer,
+)
 from retriever import RetrievedChunk
 from usage import TokenUsage
 
 
-def _chunk(citation="45 CFR 164.312", text="Encrypt ePHI."):
+def _chunk(citation="45 CFR 164.312", text="Encrypt ePHI.", issue_date=""):
     return RetrievedChunk(
-        citation=citation, heading="Technical safeguards", part=164, subpart="", text=text, similarity=0.9
+        citation=citation, heading="Technical safeguards", part=164, subpart="", text=text, similarity=0.9,
+        issue_date=issue_date,
     )
 
 
@@ -43,6 +52,60 @@ def test_context_message_includes_citation_and_chunk_text():
     assert "45 CFR 164.312" in user_message
     assert "Specific encryption text." in user_message
     assert "q" in user_message
+
+
+def test_context_message_includes_issue_date_when_the_chunk_has_one():
+    client = FakeOpenAIClient(chat_content="answer")
+
+    generate_answer("q", [_chunk(issue_date="2026-07-02")], client=client)
+
+    _, _, messages = client.calls[0]
+    assert "45 CFR 164.312, as of 2026-07-02" in messages[1]["content"]
+
+
+def test_context_message_omits_issue_date_when_the_chunk_has_none():
+    client = FakeOpenAIClient(chat_content="answer")
+
+    generate_answer("q", [_chunk(issue_date="")], client=client)
+
+    _, _, messages = client.calls[0]
+    assert "[45 CFR 164.312]" in messages[1]["content"]
+
+
+def test_historical_flag_selects_the_past_version_system_prompt():
+    client = FakeOpenAIClient(chat_content="answer")
+
+    generate_answer("q", [_chunk(issue_date="2023-01-01")], client=client, historical=True)
+
+    _, _, messages = client.calls[0]
+    assert messages[0]["content"] == HISTORICAL_SYSTEM_PROMPT
+
+
+def test_default_generation_uses_the_current_version_system_prompt():
+    client = FakeOpenAIClient(chat_content="answer")
+
+    generate_answer("q", [_chunk()], client=client)
+
+    _, _, messages = client.calls[0]
+    assert messages[0]["content"] == SYSTEM_PROMPT
+
+
+def test_historical_flag_selects_the_past_version_correction_prompt():
+    client = FakeOpenAIClient(chat_content="answer")
+
+    regenerate_answer("q", [_chunk()], "prev", ["claim"], client=client, historical=True)
+
+    _, _, messages = client.calls[0]
+    assert messages[0]["content"] == HISTORICAL_CORRECTION_SYSTEM_PROMPT
+
+
+def test_default_correction_uses_the_current_version_correction_prompt():
+    client = FakeOpenAIClient(chat_content="answer")
+
+    regenerate_answer("q", [_chunk()], "prev", ["claim"], client=client)
+
+    _, _, messages = client.calls[0]
+    assert messages[0]["content"] == CORRECTION_SYSTEM_PROMPT
 
 
 def test_regenerate_answer_returns_corrected_text_and_usage():

@@ -19,6 +19,7 @@ class Section:
     subpart: str | None
     citation: str
     heading: str
+    issue_date: str
     paragraphs: list[str] = field(default_factory=list)
 
     @property
@@ -30,7 +31,7 @@ def _clean(text: str | None) -> str:
     return " ".join((text or "").split())
 
 
-def parse_part_xml(xml_path: Path) -> list[Section]:
+def parse_part_xml(xml_path: Path, issue_date: str) -> list[Section]:
     """Extract all SECTION elements from one cached part XML file, in order."""
     tree = etree.parse(str(xml_path))
     root = tree.getroot()
@@ -57,25 +58,26 @@ def parse_part_xml(xml_path: Path) -> list[Section]:
                     subpart=current_subpart,
                     citation=f"45 CFR {elem.get('N')}",
                     heading=heading,
+                    issue_date=issue_date,
                     paragraphs=paragraphs,
                 )
             )
     return sections
 
 
-def parse_all(raw_paths: dict[int, Path]) -> list[Section]:
+def parse_all(raw_paths: dict[int, Path], issue_date: str) -> list[Section]:
     """Parse every cached part XML file, returning sections in part order."""
     sections: list[Section] = []
     for part in sorted(raw_paths):
-        sections.extend(parse_part_xml(raw_paths[part]))
+        sections.extend(parse_part_xml(raw_paths[part], issue_date))
     return sections
 
 
 if __name__ == "__main__":
-    from ingest.fetch import PARTS, TITLE
+    from ingest.fetch import PARTS, TITLE, fetch_all_parts
 
-    paths = {p: Path(f"data/raw/title-{TITLE}-part-{p}.xml") for p in PARTS}
-    all_sections = parse_all(paths)
+    issue_date, paths = fetch_all_parts(Path("data/raw"), parts=PARTS)
+    all_sections = parse_all(paths, issue_date)
     print(f"Parsed {len(all_sections)} sections total")
     for s in all_sections[:3]:
         print(f"- {s.citation} [{s.subpart}] {s.heading!r} ({len(s.paragraphs)} paragraphs)")

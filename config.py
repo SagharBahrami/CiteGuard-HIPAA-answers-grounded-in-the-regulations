@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     chroma_dir: str = "./chroma_db"
     chroma_collection: str = "hipaa_regs"
+    history_db: str = "./data/history.sqlite3"
     similarity_threshold: float = 0.35
     hipaa_source_url: str
 

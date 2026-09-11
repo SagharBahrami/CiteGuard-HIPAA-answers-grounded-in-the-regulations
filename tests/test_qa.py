@@ -12,7 +12,7 @@ def _chunk():
 
 def _no_retry(monkeypatch):
     """Fail the test loudly if regenerate_answer gets called when it shouldn't."""
-    monkeypatch.setattr(qa, "regenerate_answer", lambda *a: pytest.fail("should not retry"))
+    monkeypatch.setattr(qa, "regenerate_answer", lambda *a, **kw: pytest.fail("should not retry"))
 
 
 def test_answer_question_wires_retrieve_generate_and_check_together(monkeypatch):
@@ -22,8 +22,8 @@ def test_answer_question_wires_retrieve_generate_and_check_together(monkeypatch)
     guardrail_usage = TokenUsage(120, 20, 140)
 
     monkeypatch.setattr(qa, "retrieve", lambda query, top_k: chunks)
-    monkeypatch.setattr(qa, "generate_answer", lambda query, c: ("the answer", generation_usage))
-    monkeypatch.setattr(qa, "check_faithfulness", lambda text, c: (faithfulness, guardrail_usage))
+    monkeypatch.setattr(qa, "generate_answer", lambda query, c, **kw: ("the answer", generation_usage))
+    monkeypatch.setattr(qa, "check_faithfulness", lambda text, c, **kw: (faithfulness, guardrail_usage))
     monkeypatch.setattr(qa, "log_decline", lambda q: pytest.fail("should not decline"))
     monkeypatch.setattr(qa, "log_unfaithful", lambda *a: pytest.fail("should not flag unfaithful"))
     _no_retry(monkeypatch)
@@ -40,12 +40,93 @@ def test_answer_question_wires_retrieve_generate_and_check_together(monkeypatch)
     ]
 
 
+def test_historical_question_resolves_chunks_from_history_and_flags_the_answer(monkeypatch):
+    current = _chunk()
+    historical_version = RetrievedChunk(
+        citation="45 CFR 164.312", heading="H", part=164, subpart="", text="old text",
+        similarity=0.9, issue_date="2023-01-01",
+    )
+    faithfulness = FaithfulnessCheck(is_faithful=True, unsupported_claims=[], explanation="ok")
+
+    resolve_calls = []
+    monkeypatch.setattr(qa, "retrieve", lambda query, top_k: [current])
+    monkeypatch.setattr(
+        qa, "resolve_as_of",
+        lambda chunks, target_date: resolve_calls.append((chunks, target_date)) or [historical_version],
+    )
+    generate_calls = []
+    monkeypatch.setattr(
+        qa, "generate_answer",
+        lambda query, c, **kw: generate_calls.append((c, kw)) or ("the answer", TokenUsage.zero()),
+    )
+    monkeypatch.setattr(qa, "check_faithfulness", lambda text, c, **kw: (faithfulness, TokenUsage.zero()))
+    monkeypatch.setattr(qa, "log_usage", lambda *a, **kw: None)
+    monkeypatch.setattr(qa, "log_decline", lambda q: pytest.fail("should not decline"))
+    _no_retry(monkeypatch)
+
+    result = qa.answer_question("What did 45 CFR 164.312 require before 2024?")
+
+    assert resolve_calls == [([current], "2023-12-31")]
+    assert result.historical is True
+    assert result.history_unavailable is False
+    assert result.sources == [historical_version]
+    assert generate_calls == [([historical_version], {"historical": True})]
+
+
+def test_historical_question_with_nothing_archived_is_not_framed_as_historical(monkeypatch):
+    """The archive only reaches back to the first ingestion that superseded
+    something. When it can't reach the requested date, resolve_as_of hands back
+    today's text -- which must not then be presented as a superseded version."""
+    current = _chunk()
+    faithfulness = FaithfulnessCheck(is_faithful=True, unsupported_claims=[], explanation="ok")
+
+    monkeypatch.setattr(qa, "retrieve", lambda query, top_k: [current])
+    monkeypatch.setattr(qa, "resolve_as_of", lambda chunks, target_date: [current])  # nothing older
+    generate_calls = []
+    monkeypatch.setattr(
+        qa, "generate_answer",
+        lambda query, c, **kw: generate_calls.append(kw) or ("the answer", TokenUsage.zero()),
+    )
+    monkeypatch.setattr(qa, "check_faithfulness", lambda text, c, **kw: (faithfulness, TokenUsage.zero()))
+    monkeypatch.setattr(qa, "log_usage", lambda *a, **kw: None)
+    monkeypatch.setattr(qa, "log_decline", lambda q: pytest.fail("should not decline"))
+    _no_retry(monkeypatch)
+
+    result = qa.answer_question("What did 45 CFR 164.312 require before 2024?")
+
+    assert result.historical is False
+    assert result.history_unavailable is True
+    assert generate_calls == [{"historical": False}]  # current-version prompt, not the past-version one
+
+
+def test_ordinary_question_never_touches_history(monkeypatch):
+    chunks = [_chunk()]
+    faithfulness = FaithfulnessCheck(is_faithful=True, unsupported_claims=[], explanation="ok")
+
+    monkeypatch.setattr(qa, "retrieve", lambda query, top_k: chunks)
+    monkeypatch.setattr(qa, "resolve_as_of", lambda *a, **kw: pytest.fail("should not consult history"))
+    generate_calls = []
+    monkeypatch.setattr(
+        qa, "generate_answer",
+        lambda query, c, **kw: generate_calls.append(kw) or ("the answer", TokenUsage.zero()),
+    )
+    monkeypatch.setattr(qa, "check_faithfulness", lambda text, c, **kw: (faithfulness, TokenUsage.zero()))
+    monkeypatch.setattr(qa, "log_usage", lambda *a, **kw: None)
+    monkeypatch.setattr(qa, "log_decline", lambda q: pytest.fail("should not decline"))
+    _no_retry(monkeypatch)
+
+    result = qa.answer_question("What are the technical safeguards for encryption?")
+
+    assert result.historical is False
+    assert generate_calls == [{"historical": False}]
+
+
 def test_answer_question_logs_decline_on_empty_context(monkeypatch):
     monkeypatch.setattr(qa, "retrieve", lambda query, top_k: [])
-    monkeypatch.setattr(qa, "generate_answer", lambda query, c: ("decline message", TokenUsage.zero()))
+    monkeypatch.setattr(qa, "generate_answer", lambda query, c, **kw: ("decline message", TokenUsage.zero()))
     monkeypatch.setattr(
         qa, "check_faithfulness",
-        lambda text, c: (FaithfulnessCheck(is_faithful=True, unsupported_claims=[], explanation="no context"), TokenUsage.zero()),
+        lambda text, c, **kw: (FaithfulnessCheck(is_faithful=True, unsupported_claims=[], explanation="no context"), TokenUsage.zero()),
     )
     _no_retry(monkeypatch)
     monkeypatch.setattr(qa, "log_usage", lambda *a, **kw: None)
@@ -64,15 +145,15 @@ def test_answer_question_retries_and_logs_correction_when_retry_succeeds(monkeyp
     retried_pass = FaithfulnessCheck(is_faithful=True, unsupported_claims=[], explanation="now supported")
 
     monkeypatch.setattr(qa, "retrieve", lambda query, top_k: chunks)
-    monkeypatch.setattr(qa, "generate_answer", lambda query, c: ("fabricated answer", TokenUsage(10, 5, 15)))
+    monkeypatch.setattr(qa, "generate_answer", lambda query, c, **kw: ("fabricated answer", TokenUsage(10, 5, 15)))
     monkeypatch.setattr(
         qa, "regenerate_answer",
-        lambda query, c, prev_text, claims: ("corrected answer", TokenUsage(20, 8, 28)),
+        lambda query, c, prev_text, claims, **kw: ("corrected answer", TokenUsage(20, 8, 28)),
     )
 
     check_calls = []
 
-    def fake_check(text, c):
+    def fake_check(text, c, **kw):
         check_calls.append(text)
         return (first_pass, TokenUsage(30, 3, 33)) if text == "fabricated answer" else (retried_pass, TokenUsage(31, 4, 35))
 
@@ -103,14 +184,14 @@ def test_answer_question_falls_back_to_warn_when_retry_still_fails(monkeypatch):
     still_bad = FaithfulnessCheck(is_faithful=False, unsupported_claims=["still bad"], explanation="still nope")
 
     monkeypatch.setattr(qa, "retrieve", lambda query, top_k: chunks)
-    monkeypatch.setattr(qa, "generate_answer", lambda query, c: ("fabricated answer", TokenUsage.zero()))
+    monkeypatch.setattr(qa, "generate_answer", lambda query, c, **kw: ("fabricated answer", TokenUsage.zero()))
     monkeypatch.setattr(
         qa, "regenerate_answer",
-        lambda query, c, prev_text, claims: ("still fabricated answer", TokenUsage.zero()),
+        lambda query, c, prev_text, claims, **kw: ("still fabricated answer", TokenUsage.zero()),
     )
 
     responses = iter([(first_pass, TokenUsage.zero()), (still_bad, TokenUsage.zero())])
-    monkeypatch.setattr(qa, "check_faithfulness", lambda text, c: next(responses))
+    monkeypatch.setattr(qa, "check_faithfulness", lambda text, c, **kw: next(responses))
 
     monkeypatch.setattr(qa, "log_corrected", lambda *a: pytest.fail("should not log a correction that still failed"))
     monkeypatch.setattr(qa, "log_usage", lambda *a, **kw: None)
@@ -134,10 +215,10 @@ def test_answer_question_never_retries_on_empty_context_decline(monkeypatch):
     short-circuit, but this pins down that the decline path can't reach the retry
     branch even if that ever changed."""
     monkeypatch.setattr(qa, "retrieve", lambda query, top_k: [])
-    monkeypatch.setattr(qa, "generate_answer", lambda query, c: ("decline message", TokenUsage.zero()))
+    monkeypatch.setattr(qa, "generate_answer", lambda query, c, **kw: ("decline message", TokenUsage.zero()))
     monkeypatch.setattr(
         qa, "check_faithfulness",
-        lambda text, c: (FaithfulnessCheck(is_faithful=False, unsupported_claims=["x"], explanation="y"), TokenUsage.zero()),
+        lambda text, c, **kw: (FaithfulnessCheck(is_faithful=False, unsupported_claims=["x"], explanation="y"), TokenUsage.zero()),
     )
     _no_retry(monkeypatch)
     monkeypatch.setattr(qa, "log_usage", lambda *a, **kw: None)

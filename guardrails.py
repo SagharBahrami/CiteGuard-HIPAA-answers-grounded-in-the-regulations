@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config import settings
-from retriever import RetrievedChunk
+from retriever import RetrievedChunk, format_context
 from usage import TokenUsage
 
 _RETRYABLE = retry_if_exception_type(
@@ -34,6 +34,21 @@ GUARDRAIL_SYSTEM_PROMPT = (
     "is_faithful=true and an empty unsupported_claims list."
 )
 
+# The excerpts here are archived text the answer was deliberately asked to
+# frame as superseded, so the answer is *required* to carry a disclaimer that
+# no excerpt can support on its own. Without this carve-out the guardrail
+# flags that disclaimer on every historical answer, which both warns the user
+# spuriously and burns a corrective retry that's instructed to keep it anyway.
+HISTORICAL_GUARDRAIL_SYSTEM_PROMPT = (
+    GUARDRAIL_SYSTEM_PROMPT
+    + " These excerpts are a PAST version of the regulation, each labeled with "
+    "the issue date it was in effect. Do NOT flag the answer for stating which "
+    "issue date its excerpts come from, or for cautioning that this is a "
+    "past/superseded version that may not reflect what currently applies -- "
+    "that framing is required and is supported by the excerpt labels. Judge "
+    "only the regulatory substance against the excerpt text."
+)
+
 
 class FaithfulnessCheck(BaseModel):
     is_faithful: bool
@@ -41,15 +56,12 @@ class FaithfulnessCheck(BaseModel):
     explanation: str
 
 
-def _format_context(chunks: list[RetrievedChunk]) -> str:
-    return "\n\n".join(f"[{c.citation}] {c.heading}\n{c.text}" for c in chunks)
-
-
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=_RETRYABLE)
 def check_faithfulness(
     answer: str,
     chunks: list[RetrievedChunk],
     client: OpenAI | None = None,
+    historical: bool = False,
 ) -> tuple[FaithfulnessCheck, TokenUsage]:
     if not chunks:
         return (
@@ -66,11 +78,14 @@ def check_faithfulness(
         model=settings.guardrail_model,
         response_format=FaithfulnessCheck,
         messages=[
-            {"role": "system", "content": GUARDRAIL_SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": HISTORICAL_GUARDRAIL_SYSTEM_PROMPT if historical else GUARDRAIL_SYSTEM_PROMPT,
+            },
             {
                 "role": "user",
                 "content": (
-                    f"Regulation excerpts:\n\n{_format_context(chunks)}\n\n"
+                    f"Regulation excerpts:\n\n{format_context(chunks)}\n\n"
                     f"Generated answer:\n{answer}"
                 ),
             },

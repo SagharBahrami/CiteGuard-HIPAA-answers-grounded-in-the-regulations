@@ -48,8 +48,17 @@ def ask_hipaa_question(query: str, top_k: int = 3) -> dict:
         "answer": result.text,
         "is_faithful": result.faithfulness.is_faithful,
         "unsupported_claims": result.faithfulness.unsupported_claims,
+        # True when the question was read as asking about a past version, so the
+        # sources below are archived text rather than what currently applies.
+        "historical": result.historical,
+        # True when a past version was asked for but none is archived for that
+        # date -- the sources below are current text, not the version requested.
+        "history_unavailable": result.history_unavailable,
         "sources": [
-            {"citation": s.citation, "heading": s.heading, "similarity": round(s.similarity, 3)}
+            {
+                "citation": s.citation, "heading": s.heading, "similarity": round(s.similarity, 3),
+                "issue_date": s.issue_date,
+            }
             for s in result.sources
         ],
     }
@@ -68,7 +77,10 @@ def search_hipaa_regulations(query: str, top_k: int = 5) -> list[dict]:
     """
     chunks = retrieve(query, top_k=top_k)
     return [
-        {"citation": c.citation, "heading": c.heading, "similarity": round(c.similarity, 3), "text": c.text}
+        {
+            "citation": c.citation, "heading": c.heading, "similarity": round(c.similarity, 3),
+            "issue_date": c.issue_date, "text": c.text,
+        }
         for c in chunks
     ]
 
