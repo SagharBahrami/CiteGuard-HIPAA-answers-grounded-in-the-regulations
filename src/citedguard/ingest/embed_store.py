@@ -12,9 +12,9 @@ import chromadb
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from config import settings
-from ingest import history
-from ingest.chunk import Chunk
+from citedguard.config import settings
+from citedguard.ingest import history
+from citedguard.ingest.chunk import Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -154,9 +154,9 @@ def store_chunks(
 
 
 if __name__ == "__main__":
-    from ingest.fetch import PARTS, fetch_all_parts
-    from ingest.parse import parse_all
-    from ingest.chunk import chunk_all
+    from citedguard.ingest.fetch import PARTS, fetch_all_parts
+    from citedguard.ingest.parse import parse_all
+    from citedguard.ingest.chunk import chunk_all
 
     logging.basicConfig(level=logging.INFO)
 

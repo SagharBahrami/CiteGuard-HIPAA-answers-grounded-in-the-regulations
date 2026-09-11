@@ -1,50 +1,75 @@
-"""Guard against pyproject's hand-maintained py-modules list going stale.
+"""Guard the src-layout boundary.
 
-Nothing else catches this. Tests and a local `pip install -e .` both import
-top-level modules straight from the source directory, so an unlisted module
-resolves fine here and the suite stays green. The Dockerfile, though, does a
-non-editable `pip install .` -- only what py-modules names gets copied into
-site-packages -- and the worker service runs `rq worker`, a console script
-whose sys.path[0] is the bin directory, not /app. So an unlisted module is
-invisible to exactly the process that needs it, and the failure surfaces as a
-ModuleNotFoundError inside a container, at job-execution time, rather than
-anywhere near the commit that caused it.
+History: this project used a flat layout with a hand-maintained py-modules
+list in pyproject. Two modules were added without being listed, and because
+tests and editable installs both import straight from the source tree, the
+suite stayed green while the Docker image -- a non-editable `pip install .`
+-- shipped worker containers that died on ModuleNotFoundError at job time.
+
+The src layout removes that failure mode structurally: packages.find
+discovers everything under src/, so nothing inside the package can go
+unshipped. What it can't prevent is library code drifting back OUT of the
+package -- a new module dropped at the repo root, imported by citedguard,
+resolving fine locally (pytest puts rootdir on sys.path) and missing in the
+wheel. That is the same bug in a new costume, so it's what these tests watch.
 """
 
+import ast
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+PKG = ROOT / "src" / "citedguard"
 
-# app.py is the Streamlit entrypoint: it's launched by path (`streamlit run
-# app.py`) and never imported as a module, so it is deliberately not packaged.
-NOT_PACKAGED = {"app"}
+# Launched by path (`streamlit run app.py`, and mcp_server.py over stdio),
+# never imported by the library, so they stay at the root unpackaged.
+ROOT_ENTRYPOINTS = {"app", "mcp_server"}
 
-
-def declared_py_modules() -> set[str]:
-    """Read py-modules out of pyproject.toml.
-
-    Parsed with a regex rather than tomllib because requires-python allows
-    3.10, where tomllib doesn't exist yet, and a guard test that silently
-    skips on the project's own minimum version is not a guard.
-    """
-    src = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    match = re.search(r"^py-modules\s*=\s*\[(.*?)\]", src, re.S | re.M)
-    assert match, "py-modules not found in pyproject.toml"
-    return set(re.findall(r'"([^"]+)"', match.group(1)))
+# Not shipped: a dev-only eval harness run from the source tree.
+UNPACKAGED_DIRS = {"evals"}
 
 
-def test_every_top_level_module_is_packaged():
-    on_disk = {p.stem for p in ROOT.glob("*.py")} - NOT_PACKAGED
-    missing = on_disk - declared_py_modules()
-    assert not missing, (
-        f"top-level modules missing from pyproject py-modules: {sorted(missing)}. "
-        "A non-editable `pip install .` would omit them and the worker "
-        "containers would fail at import time."
+def test_no_stray_library_modules_at_root():
+    """A new root-level .py is either an entrypoint or it belongs in the package."""
+    found = {p.stem for p in ROOT.glob("*.py")}
+    stray = found - ROOT_ENTRYPOINTS
+    assert not stray, (
+        f"unexpected top-level modules: {sorted(stray)}. Library code belongs in "
+        "src/citedguard/ so it gets packaged; if this really is an entrypoint, "
+        "add it to ROOT_ENTRYPOINTS."
     )
 
 
-def test_declared_modules_all_exist():
-    """A name left behind after a rename/delete breaks the build outright."""
-    stale = {m for m in declared_py_modules() if not (ROOT / f"{m}.py").exists()}
-    assert not stale, f"py-modules names files that no longer exist: {sorted(stale)}"
+def _imported_roots(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    roots = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            roots.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            roots.add(node.module.split(".")[0])
+    return roots
+
+
+def test_package_never_imports_unpackaged_code():
+    """Packaged code must not depend on anything left outside the wheel."""
+    forbidden = ROOT_ENTRYPOINTS | UNPACKAGED_DIRS
+    offenders = {
+        str(p.relative_to(ROOT)): sorted(_imported_roots(p) & forbidden)
+        for p in PKG.rglob("*.py")
+        if _imported_roots(p) & forbidden
+    }
+    assert not offenders, (
+        f"packaged modules import unpackaged code: {offenders}. This works in "
+        "the source tree and fails in the installed wheel."
+    )
+
+
+def test_pyproject_discovers_the_package():
+    """The src-layout discovery config is what makes the above guarantees hold."""
+    cfg = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert re.search(r'where\s*=\s*\[\s*"src"\s*\]', cfg), "packages.find must point at src/"
+    assert "py-modules" not in cfg, (
+        "py-modules is back: that reintroduces the hand-maintained list this "
+        "layout exists to eliminate."
+    )

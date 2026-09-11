@@ -1,4 +1,4 @@
-from ingest.history import ArchivedChunk, archive_batch, connect, history_for_citation
+from citedguard.ingest.history import ArchivedChunk, archive_batch, connect, history_for_citation
 
 
 def _entry(chunk_id="1_1", citation="45 CFR 1", text="Old text.", issue_date="2026-01-01", reason="superseded"):

@@ -11,10 +11,10 @@ without manual intervention.
 import logging
 from pathlib import Path
 
-from config import settings
-from ingest.__main__ import run
-from ingest.embed_store import current_issue_date
-from ingest.fetch import TITLE, get_current_issue_date
+from citedguard.config import settings
+from citedguard.ingest.__main__ import run
+from citedguard.ingest.embed_store import current_issue_date
+from citedguard.ingest.fetch import TITLE, get_current_issue_date
 
 logger = logging.getLogger(__name__)
 

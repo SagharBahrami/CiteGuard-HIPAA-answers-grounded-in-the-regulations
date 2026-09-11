@@ -1,6 +1,6 @@
-import ingest.__main__ as ingest_main
+import citedguard.ingest.__main__ as ingest_main
 from conftest import FakeRedis
-from locks import INGESTION_LOCK
+from citedguard.locks import INGESTION_LOCK
 
 
 def _patch_pipeline(monkeypatch, calls):
@@ -20,7 +20,7 @@ def _patch_redis(monkeypatch, redis):
 def _lock_with(redis):
     from contextlib import contextmanager
 
-    from locks import try_lock as real_try_lock
+    from citedguard.locks import try_lock as real_try_lock
 
     @contextmanager
     def _try_lock(name, **kwargs):

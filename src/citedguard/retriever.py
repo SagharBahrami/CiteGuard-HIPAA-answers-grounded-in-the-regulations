@@ -32,8 +32,8 @@ import numpy as np
 from openai import OpenAI
 from rank_bm25 import BM25Okapi
 
-from config import settings
-from ingest.embed_store import embed_batch
+from citedguard.config import settings
+from citedguard.ingest.embed_store import embed_batch
 
 RESCUE_CANDIDATES = 5  # how many top BM25 matches are eligible to be rescued
 

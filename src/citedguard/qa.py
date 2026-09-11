@@ -13,11 +13,11 @@ blocking on any flag would incorrectly refuse a lot of fine answers.
 
 from dataclasses import dataclass
 
-from audit import log_corrected, log_decline, log_unfaithful, log_usage
-from generate import generate_answer, regenerate_answer
-from guardrails import FaithfulnessCheck, check_faithfulness
-from retriever import RetrievedChunk, retrieve
-from version_query import extract_target_date, is_historical_query, resolve_as_of
+from citedguard.audit import log_corrected, log_decline, log_unfaithful, log_usage
+from citedguard.generate import generate_answer, regenerate_answer
+from citedguard.guardrails import FaithfulnessCheck, check_faithfulness
+from citedguard.retriever import RetrievedChunk, retrieve
+from citedguard.version_query import extract_target_date, is_historical_query, resolve_as_of
 
 
 @dataclass

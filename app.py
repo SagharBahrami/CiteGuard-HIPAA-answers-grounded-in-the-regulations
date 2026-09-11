@@ -17,8 +17,8 @@ import time
 
 import streamlit as st
 
-from jobs import enqueue_question
-from qa import Answer
+from citedguard.jobs import enqueue_question
+from citedguard.qa import Answer
 
 st.set_page_config(page_title="CitedGuard", page_icon="\U0001f4dc")
 

@@ -1,11 +1,11 @@
 import pytest
 
 from conftest import FakeOpenAIClient
-from ingest import history
-from ingest.chunk import Chunk
-from ingest.embed_store import chunk_id_for, store_chunks
-from retriever import RetrievedChunk
-from version_query import extract_target_date, is_historical_query, resolve_as_of
+from citedguard.ingest import history
+from citedguard.ingest.chunk import Chunk
+from citedguard.ingest.embed_store import chunk_id_for, store_chunks
+from citedguard.retriever import RetrievedChunk
+from citedguard.version_query import extract_target_date, is_historical_query, resolve_as_of
 
 
 # --- is_historical_query -------------------------------------------------

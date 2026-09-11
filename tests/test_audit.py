@@ -1,8 +1,8 @@
 import json
 
-import audit
-from guardrails import FaithfulnessCheck
-from usage import TokenUsage
+import citedguard.audit as audit
+from citedguard.guardrails import FaithfulnessCheck
+from citedguard.usage import TokenUsage
 
 
 def test_log_decline_writes_expected_fields(tmp_path, monkeypatch):

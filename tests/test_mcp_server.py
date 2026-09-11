@@ -1,9 +1,9 @@
 import anyio
 
 import mcp_server
-from guardrails import FaithfulnessCheck
-from qa import Answer
-from retriever import RetrievedChunk
+from citedguard.guardrails import FaithfulnessCheck
+from citedguard.qa import Answer
+from citedguard.retriever import RetrievedChunk
 
 
 def _chunk(citation="45 CFR 164.312", text="Encrypt ePHI.", issue_date="2026-01-01"):

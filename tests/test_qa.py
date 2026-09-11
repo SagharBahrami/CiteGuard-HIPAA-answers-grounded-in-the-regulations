@@ -1,9 +1,9 @@
 import pytest
 
-import qa
-from guardrails import FaithfulnessCheck
-from retriever import RetrievedChunk
-from usage import TokenUsage
+import citedguard.qa as qa
+from citedguard.guardrails import FaithfulnessCheck
+from citedguard.retriever import RetrievedChunk
+from citedguard.usage import TokenUsage
 
 
 def _chunk():

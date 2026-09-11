@@ -14,7 +14,7 @@ missing the requirement/standard it's an implementation detail of.
 
 from dataclasses import dataclass
 
-from ingest.parse import Section
+from citedguard.ingest.parse import Section
 
 MAX_CHARS = 1500
 
@@ -78,8 +78,8 @@ def chunk_all(sections: list[Section], max_chars: int = MAX_CHARS) -> list[Chunk
 if __name__ == "__main__":
     from pathlib import Path
 
-    from ingest.fetch import PARTS, fetch_all_parts
-    from ingest.parse import parse_all
+    from citedguard.ingest.fetch import PARTS, fetch_all_parts
+    from citedguard.ingest.parse import parse_all
 
     issue_date, paths = fetch_all_parts(Path("data/raw"), parts=PARTS)
     all_sections = parse_all(paths, issue_date)

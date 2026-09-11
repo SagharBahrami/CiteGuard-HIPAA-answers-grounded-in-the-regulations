@@ -1,9 +1,9 @@
 import chromadb
 
 from conftest import FakeOpenAIClient
-from ingest import history
-from ingest.chunk import Chunk
-from ingest.embed_store import chunk_id, chunk_metadata, current_issue_date, store_chunks
+from citedguard.ingest import history
+from citedguard.ingest.chunk import Chunk
+from citedguard.ingest.embed_store import chunk_id, chunk_metadata, current_issue_date, store_chunks
 
 
 def _chunk(citation="45 CFR 164.312", index=1, total=1, subpart="Subpart C", text="Encrypt ePHI.", issue_date="2026-01-01"):

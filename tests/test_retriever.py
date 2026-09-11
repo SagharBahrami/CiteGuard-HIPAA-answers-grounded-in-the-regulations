@@ -17,8 +17,8 @@ import numpy as np
 import pytest
 from rank_bm25 import BM25Okapi
 
-import retriever
-from retriever import _tokenize, retrieve
+import citedguard.retriever as retriever
+from citedguard.retriever import _tokenize, retrieve
 
 
 def _unit_vector(sim: float) -> list[float]:

@@ -1,6 +1,6 @@
 import types
 
-from usage import TokenUsage
+from citedguard.usage import TokenUsage
 
 
 def test_zero_has_no_tokens():

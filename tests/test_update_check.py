@@ -1,5 +1,5 @@
-import ingest.update_check as update_check
-from ingest.update_check import check_and_maybe_ingest
+import citedguard.ingest.update_check as update_check
+from citedguard.ingest.update_check import check_and_maybe_ingest
 
 
 def _patch(monkeypatch, latest, ingested, runs, run_result=True):

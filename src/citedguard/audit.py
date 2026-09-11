@@ -15,8 +15,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from guardrails import FaithfulnessCheck
-from usage import TokenUsage
+from citedguard.guardrails import FaithfulnessCheck
+from citedguard.usage import TokenUsage
 
 LOG_PATH = Path("logs/guardrail_audit.jsonl")
 USAGE_LOG_PATH = Path("logs/token_usage.jsonl")

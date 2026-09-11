@@ -1,13 +1,13 @@
-from config import settings
+from citedguard.config import settings
 from conftest import DEFAULT_USAGE, FakeOpenAIClient
-from guardrails import (
+from citedguard.guardrails import (
     GUARDRAIL_SYSTEM_PROMPT,
     HISTORICAL_GUARDRAIL_SYSTEM_PROMPT,
     FaithfulnessCheck,
     check_faithfulness,
 )
-from retriever import RetrievedChunk
-from usage import TokenUsage
+from citedguard.retriever import RetrievedChunk
+from citedguard.usage import TokenUsage
 
 
 def _chunk():

@@ -1,6 +1,6 @@
-from config import settings
+from citedguard.config import settings
 from conftest import DEFAULT_USAGE, FakeOpenAIClient
-from generate import (
+from citedguard.generate import (
     CORRECTION_SYSTEM_PROMPT,
     HISTORICAL_CORRECTION_SYSTEM_PROMPT,
     HISTORICAL_SYSTEM_PROMPT,
@@ -9,8 +9,8 @@ from generate import (
     generate_answer,
     regenerate_answer,
 )
-from retriever import RetrievedChunk
-from usage import TokenUsage
+from citedguard.retriever import RetrievedChunk
+from citedguard.usage import TokenUsage
 
 
 def _chunk(citation="45 CFR 164.312", text="Encrypt ePHI.", issue_date=""):

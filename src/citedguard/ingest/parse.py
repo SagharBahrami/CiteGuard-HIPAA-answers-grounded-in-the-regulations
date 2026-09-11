@@ -74,7 +74,7 @@ def parse_all(raw_paths: dict[int, Path], issue_date: str) -> list[Section]:
 
 
 if __name__ == "__main__":
-    from ingest.fetch import PARTS, TITLE, fetch_all_parts
+    from citedguard.ingest.fetch import PARTS, TITLE, fetch_all_parts
 
     issue_date, paths = fetch_all_parts(Path("data/raw"), parts=PARTS)
     all_sections = parse_all(paths, issue_date)

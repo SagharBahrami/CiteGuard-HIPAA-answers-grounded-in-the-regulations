@@ -23,10 +23,10 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from config import settings
-from ingest import history
-from ingest.embed_store import chunk_id_for
-from retriever import RetrievedChunk
+from citedguard.config import settings
+from citedguard.ingest import history
+from citedguard.ingest.embed_store import chunk_id_for
+from citedguard.retriever import RetrievedChunk
 
 # Nouns that mark a temporal phrase as being about the *regulation text*
 # rather than about a patient record, an organization's own duties, or a

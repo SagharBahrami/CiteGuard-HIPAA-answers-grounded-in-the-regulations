@@ -1,5 +1,5 @@
 from conftest import FakeRedis
-from locks import INGESTION_LOCK, try_lock
+from citedguard.locks import INGESTION_LOCK, try_lock
 
 
 def test_lock_is_acquired_when_free_and_released_on_exit():

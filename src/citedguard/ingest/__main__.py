@@ -1,18 +1,18 @@
 """Run the full ingestion pipeline: fetch -> parse -> chunk -> embed & store.
 
-Usage: python -m ingest [--force]
+Usage: python -m citedguard.ingest [--force]
 """
 
 import argparse
 import logging
 from pathlib import Path
 
-from config import settings
-from ingest.fetch import PARTS, TITLE, fetch_all_parts
-from ingest.parse import parse_all
-from ingest.chunk import chunk_all
-from ingest.embed_store import store_chunks
-from locks import INGESTION_LOCK, try_lock
+from citedguard.config import settings
+from citedguard.ingest.fetch import PARTS, TITLE, fetch_all_parts
+from citedguard.ingest.parse import parse_all
+from citedguard.ingest.chunk import chunk_all
+from citedguard.ingest.embed_store import store_chunks
+from citedguard.locks import INGESTION_LOCK, try_lock
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.queue:
-        from jobs import enqueue_ingestion
+        from citedguard.jobs import enqueue_ingestion
 
         job = enqueue_ingestion(force=args.force)
         print(f"Enqueued ingestion job {job.id}")

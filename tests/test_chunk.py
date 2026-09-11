@@ -1,5 +1,5 @@
-from ingest.chunk import chunk_all, chunk_section
-from ingest.parse import Section
+from citedguard.ingest.chunk import chunk_all, chunk_section
+from citedguard.ingest.parse import Section
 
 
 def _section(paragraphs, citation="45 CFR 164.100", issue_date="2026-01-01"):

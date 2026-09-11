@@ -1,6 +1,6 @@
-import jobs
-from ingest.__main__ import run as ingest_run
-from qa import answer_question
+import citedguard.jobs as jobs
+from citedguard.ingest.__main__ import run as ingest_run
+from citedguard.qa import answer_question
 
 
 def test_enqueue_question_submits_answer_question_to_the_queue(monkeypatch):

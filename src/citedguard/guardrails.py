@@ -8,9 +8,9 @@ from openai import APIConnectionError, APITimeoutError, InternalServerError, Ope
 from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from config import settings
-from retriever import RetrievedChunk, format_context
-from usage import TokenUsage
+from citedguard.config import settings
+from citedguard.retriever import RetrievedChunk, format_context
+from citedguard.usage import TokenUsage
 
 _RETRYABLE = retry_if_exception_type(
     (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)
@@ -95,7 +95,7 @@ def check_faithfulness(
 
 
 if __name__ == "__main__":
-    from qa import answer_question
+    from citedguard.qa import answer_question
 
     result = answer_question("What are the technical safeguards for encryption?")
     print("--- Real answer ---")

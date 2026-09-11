@@ -33,9 +33,9 @@ fully deterministic. Run manually:
 """
 
 from evals.cases import CASES
-from generate import regenerate_answer
-from guardrails import check_faithfulness
-from retriever import RetrievedChunk
+from citedguard.generate import regenerate_answer
+from citedguard.guardrails import check_faithfulness
+from citedguard.retriever import RetrievedChunk
 
 OUTCOME_LABELS = {
     "passed_clean": "faithful, never flagged -- correct immediately",

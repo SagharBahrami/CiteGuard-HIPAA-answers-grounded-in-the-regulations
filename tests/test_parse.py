@@ -1,4 +1,4 @@
-from ingest.parse import parse_part_xml
+from citedguard.ingest.parse import parse_part_xml
 
 XML = """<?xml version="1.0"?>
 <DIV5 N="164">

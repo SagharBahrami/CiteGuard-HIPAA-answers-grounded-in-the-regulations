@@ -20,8 +20,8 @@ import time
 
 from mcp.server.fastmcp import FastMCP
 
-from jobs import enqueue_question
-from retriever import retrieve
+from citedguard.jobs import enqueue_question
+from citedguard.retriever import retrieve
 
 mcp = FastMCP("citedguard")
 

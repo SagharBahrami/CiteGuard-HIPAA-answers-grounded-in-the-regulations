@@ -15,15 +15,15 @@ question --> retriever.py (hybrid search) --> generate.py --> guardrails.py --> 
                             source chunks                   faithfulness check
 ```
 
-1. **Ingestion** (`ingest/`) pulls the regulation text, splits it into
+1. **Ingestion** (`src/citedguard/ingest/`) pulls the regulation text, splits it into
    citable chunks, embeds them, and stores them in a local Chroma
    collection. Run once (and again whenever you want to refresh the data).
-2. **Retrieval** (`retriever.py`) finds the chunks relevant to a question.
-3. **Generation** (`generate.py`) answers the question using only those
+2. **Retrieval** (`src/citedguard/retriever.py`) finds the chunks relevant to a question.
+3. **Generation** (`src/citedguard/generate.py`) answers the question using only those
    chunks, with citations.
-4. **Guardrails** (`guardrails.py`) independently checks the answer against
+4. **Guardrails** (`src/citedguard/guardrails.py`) independently checks the answer against
    its sources before it's returned.
-5. **`qa.py`** wires 2-4 together into a single `answer_question(query)` call.
+5. **`src/citedguard/qa.py`** wires 2-4 together into a single `answer_question(query)` call.
 
 ## Setup
 
@@ -39,7 +39,7 @@ calls — no API costs or external requests):
 pytest
 ```
 
-Config lives in `config.py` (via `pydantic-settings`, reading from `.env`):
+Config lives in `src/citedguard/config.py` (via `pydantic-settings`, reading from `.env`):
 
 | Setting | Default | Purpose |
 |---|---|---|
@@ -58,8 +58,8 @@ Config lives in `config.py` (via `pydantic-settings`, reading from `.env`):
 embeds, and stores in Chroma — costs a small amount in embedding API calls):
 
 ```bash
-python -m ingest          # skips parts already cached in data/raw/
-python -m ingest --force  # re-fetches everything
+python -m citedguard.ingest          # skips parts already cached in data/raw/
+python -m citedguard.ingest --force  # re-fetches everything
 ```
 
 **Ask a question** (calls `qa.answer_question` directly — synchronous, no
@@ -124,7 +124,7 @@ python mcp_server.py
 
 ## Background jobs (Redis/RQ)
 
-`jobs.py` defines an RQ queue that two things get submitted to instead of
+`src/citedguard/jobs.py` defines an RQ queue that two things get submitted to instead of
 running inline:
 
 - `enqueue_question(query, top_k)` — used by both the Streamlit UI (`app.py`)
@@ -136,7 +136,7 @@ running inline:
   flags as otherwise unimplemented. `search_hipaa_regulations` (the other
   MCP tool) deliberately stays direct, not queued — it's cheap enough
   (retrieval only, no generation) that queuing it would only add latency.
-- `enqueue_ingestion(force)` — used by `python -m ingest --queue`, for
+- `enqueue_ingestion(force)` — used by `python -m citedguard.ingest --queue`, for
   running ingestion as a background job instead of a blocking CLI command.
 
 Either way, a **separate worker process** has to actually run the jobs —
@@ -202,7 +202,7 @@ mount surfaces whatever's already there, it doesn't create it.
 
 ## Ingestion pipeline details
 
-- **`ingest/fetch.py`** — Downloads raw XML for Parts 160/162/164 from
+- **`src/citedguard/ingest/fetch.py`** — Downloads raw XML for Parts 160/162/164 from
   eCFR's Content Versioner API (`api.ecfr.gov`), not by scraping
   `www.ecfr.gov` directly — the rendered site actively blocks scraping with
   a CAPTCHA wall. Caches to `data/raw/<issue_date>/`, one subdirectory per
@@ -210,36 +210,36 @@ mount surfaces whatever's already there, it doesn't create it.
   ones — `data/raw/` doubles as the historical snapshot archive of every raw
   XML eCFR has published. Skips parts already cached for that issue date
   unless `force=True`.
-- **`ingest/parse.py`** — Parses each part's XML into `Section` records
+- **`src/citedguard/ingest/parse.py`** — Parses each part's XML into `Section` records
   (citation, heading, part, subpart, issue date, ordered paragraphs). The
   `(a)/(1)/(i)` legal outline within a section is flat text in the XML, not
   real nesting, so it isn't reconstructed here.
-- **`ingest/chunk.py`** — Turns each `Section` into one or more `Chunk`s,
+- **`src/citedguard/ingest/chunk.py`** — Turns each `Section` into one or more `Chunk`s,
   carrying its issue date along. A section under ~1500 characters stays
   whole; longer ones are split by greedily packing paragraphs up to that
   size, **splitting only at paragraph boundaries** (never mid-sentence).
   Split chunks repeat their previous chunk's last paragraph as lead-in
   context, so a chunk retrieved on its own isn't missing the
   requirement/standard it's an implementation detail of.
-- **`ingest/embed_store.py`** — Embeds chunks in batches of 100 via the
+- **`src/citedguard/ingest/embed_store.py`** — Embeds chunks in batches of 100 via the
   OpenAI embeddings API and upserts them into Chroma with deterministic IDs
   (`<section>_<chunk_index>`) and an `issue_date` metadata field, so
   re-running ingestion updates existing rows instead of duplicating them.
   Before any upsert or delete, whatever version it's about to overwrite is
-  archived to `ingest/history.py`'s SQLite table first (and that archive
+  archived to `src/citedguard/ingest/history.py`'s SQLite table first (and that archive
   write is committed before the Chroma call runs) — Chroma only ever holds
   the current version of each chunk, but nothing superseded or removed is
   lost. The Chroma collection is explicitly created with `hnsw:space=cosine`
   so similarity scores have a well-defined meaning (`1 - distance`).
-- **`ingest/update_check.py`** — Compares eCFR's latest published issue date
+- **`src/citedguard/ingest/update_check.py`** — Compares eCFR's latest published issue date
   against what's currently in Chroma and re-ingests only when they differ.
   Enqueue it on a schedule via `jobs.enqueue_update_check()` to pick up
   regulatory changes automatically instead of relying on someone running
-  `python -m ingest` by hand.
-- **`locks.py`** — A Redis lock serializing ingestion runs. Chroma's local
+  `python -m citedguard.ingest` by hand.
+- **`src/citedguard/locks.py`** — A Redis lock serializing ingestion runs. Chroma's local
   persistent client and the SQLite archive both assume a single writer, but
   docker-compose runs four worker replicas and a scheduled update check can
-  fire while a manual `python -m ingest` is still going. The lock is
+  fire while a manual `python -m citedguard.ingest` is still going. The lock is
   **skip-if-held, not wait-your-turn**: a second run started mid-flight has
   nothing new to do, and queueing behind the lock only to re-embed the whole
   corpus would cost real money for no change — so `run()` returns `False`
@@ -251,7 +251,7 @@ mount surfaces whatever's already there, it doesn't create it.
 
 Current corpus: 148 sections -> 427 chunks.
 
-## Retrieval details (`retriever.py`)
+## Retrieval details (`src/citedguard/retriever.py`)
 
 Hybrid search, but not naive rank fusion:
 
@@ -276,7 +276,7 @@ Hybrid search, but not naive rank fusion:
   top-k spans distinct sections instead of several slots going to the same
   long section.
 
-## Historical version queries (`version_query.py`)
+## Historical version queries (`src/citedguard/version_query.py`)
 
 Chroma holds only the current version of each chunk, so retrieval always
 answers from what applies today — unless the question is specifically asking
@@ -323,13 +323,13 @@ implemented vs. planned.
 
 | # | Guardrail | Where | Level | What it does |
 |---|---|---|---|---|
-| 1 | **Relevance threshold** | `retriever.py` | **Fully implemented** | Chunks below `similarity_threshold` (0.35 cosine) are dropped before generation ever sees them. |
-| 2 | **Decline on empty context** | `generate.py` (`NO_CONTEXT_MESSAGE`) | **Fully implemented** | If retrieval returns zero chunks, a fixed decline message is returned *without calling the LLM at all* — no chance to hallucinate from general knowledge. |
-| 3 | **Grounding instruction (prompt-level)** | `generate.py` (`SYSTEM_PROMPT`) | **Fully implemented, soft guardrail** | Instructs the model to answer only from the provided excerpts, cite the specific CFR section per claim, and say explicitly when the excerpts don't fully answer the question. This relies on model compliance — it isn't verified, which is what guardrail #4 is for. |
-| 4 | **Faithfulness / groundedness check** | `guardrails.py` (`check_faithfulness`) | **Fully implemented** | A *second*, independent LLM call (`guardrail_model`, separate from `generation_model`) re-checks the generated answer against the same source excerpts and flags any claim not actually supported, via structured output (`is_faithful`, `unsupported_claims`, `explanation`). See [Evaluation](#evaluation) for measured accuracy: 100% recall, 55.6% precision. |
-| 5 | **Rescue-candidate sanity floor** | `retriever.py` (`RESCUE_SIMILARITY_THRESHOLD`) | **Fully implemented** | Prevents the BM25 rescue mechanism from pulling in chunks with no real semantic relationship to the query, just because of incidental keyword overlap with common regulatory vocabulary. |
-| 6 | **Corrective retry** | `qa.py` (`answer_question`), `generate.py` (`regenerate_answer`) | **Fully implemented** | If guardrail #4 flags an answer, it's regenerated once with the specific unsupported claims fed back as feedback ("this claim wasn't supported: X — remove it or ground it properly"), then re-checked. If the retry passes, the corrected answer is returned with **no warning shown** — the guardrail did its job silently. If it's still flagged, the retried answer is returned with the warning banner, same as before — not blocked. Verified against a real deliberately-fabricated answer (AES-256/24-hour-checksum claims that don't exist in the source): the retry removed both fabrications and replaced them with the actual regulatory text. |
-| 7 | **Audit logging** | `audit.py` | **Fully implemented** | Every empty-context decline, every *still*-unfaithful answer (post-retry), and every silent correction is appended as a JSON line to `logs/guardrail_audit.jsonl` (`log_decline` / `log_unfaithful` / `log_corrected`), including the query, answer text, unsupported claims, and citations — so guardrail activity can be reviewed later, including the corrections nobody saw a warning for. Logs full text verbatim (a deliberate choice for reviewability); `logs/` is gitignored since these entries carry the same sensitivity as whatever a user asked. |
+| 1 | **Relevance threshold** | `src/citedguard/retriever.py` | **Fully implemented** | Chunks below `similarity_threshold` (0.35 cosine) are dropped before generation ever sees them. |
+| 2 | **Decline on empty context** | `src/citedguard/generate.py` (`NO_CONTEXT_MESSAGE`) | **Fully implemented** | If retrieval returns zero chunks, a fixed decline message is returned *without calling the LLM at all* — no chance to hallucinate from general knowledge. |
+| 3 | **Grounding instruction (prompt-level)** | `src/citedguard/generate.py` (`SYSTEM_PROMPT`) | **Fully implemented, soft guardrail** | Instructs the model to answer only from the provided excerpts, cite the specific CFR section per claim, and say explicitly when the excerpts don't fully answer the question. This relies on model compliance — it isn't verified, which is what guardrail #4 is for. |
+| 4 | **Faithfulness / groundedness check** | `src/citedguard/guardrails.py` (`check_faithfulness`) | **Fully implemented** | A *second*, independent LLM call (`guardrail_model`, separate from `generation_model`) re-checks the generated answer against the same source excerpts and flags any claim not actually supported, via structured output (`is_faithful`, `unsupported_claims`, `explanation`). See [Evaluation](#evaluation) for measured accuracy: 100% recall, 55.6% precision. |
+| 5 | **Rescue-candidate sanity floor** | `src/citedguard/retriever.py` (`RESCUE_SIMILARITY_THRESHOLD`) | **Fully implemented** | Prevents the BM25 rescue mechanism from pulling in chunks with no real semantic relationship to the query, just because of incidental keyword overlap with common regulatory vocabulary. |
+| 6 | **Corrective retry** | `src/citedguard/qa.py` (`answer_question`), `src/citedguard/generate.py` (`regenerate_answer`) | **Fully implemented** | If guardrail #4 flags an answer, it's regenerated once with the specific unsupported claims fed back as feedback ("this claim wasn't supported: X — remove it or ground it properly"), then re-checked. If the retry passes, the corrected answer is returned with **no warning shown** — the guardrail did its job silently. If it's still flagged, the retried answer is returned with the warning banner, same as before — not blocked. Verified against a real deliberately-fabricated answer (AES-256/24-hour-checksum claims that don't exist in the source): the retry removed both fabrications and replaced them with the actual regulatory text. |
+| 7 | **Audit logging** | `src/citedguard/audit.py` | **Fully implemented** | Every empty-context decline, every *still*-unfaithful answer (post-retry), and every silent correction is appended as a JSON line to `logs/guardrail_audit.jsonl` (`log_decline` / `log_unfaithful` / `log_corrected`), including the query, answer text, unsupported claims, and citations — so guardrail activity can be reviewed later, including the corrections nobody saw a warning for. Logs full text verbatim (a deliberate choice for reviewability); `logs/` is gitignored since these entries carry the same sensitivity as whatever a user asked. |
 
 **Why blocking was rejected instead of just falling back to warn:**
 [Evaluation](#evaluation) measured the guardrail's precision at only
@@ -347,7 +347,7 @@ for the borderline cases that remain flagged after a retry.
 ## Evaluation
 
 `evals/` measures the faithfulness guardrail's actual accuracy, rather than
-trusting it works from the single-example demo in `guardrails.py`'s
+trusting it works from the single-example demo in `src/citedguard/guardrails.py`'s
 `__main__` block. Separate from `tests/`: it makes real (paid, slightly
 non-deterministic) calls to `guardrail_model`, so it isn't run as part of
 `pytest` — run it deliberately, e.g. after changing the guardrail prompt or
@@ -396,7 +396,7 @@ either accurate-with-no-warning or accurately-flagged-with-a-warning.
 ## Token usage
 
 `generate_answer()` and `check_faithfulness()` both return a `TokenUsage`
-(`usage.py`) alongside their result, and `qa.answer_question()` logs every
+(`src/citedguard/usage.py`) alongside their result, and `qa.answer_question()` logs every
 question's usage to `logs/token_usage.jsonl` via `audit.log_usage()` —
 independent of whether a guardrail was triggered, so cost can be measured
 before anything gets tuned to reduce it.
@@ -428,7 +428,7 @@ the answer was still faithful with 3 sources instead of 5.
 | Hybrid retrieval | Done |
 | Generation with citations | Done |
 | Faithfulness guardrail | Done (corrective retry, falls back to warn) |
-| RQ worker / job queue | Done (`jobs.py`; UI questions + `--queue` ingestion) |
+| RQ worker / job queue | Done (`src/citedguard/jobs.py`; UI questions + `--queue` ingestion) |
 | Streamlit UI | Done |
 | Test suite | Done (60 tests: chunk/parse/retriever/generate/guardrails/qa/audit/embed_store/fetch/usage/mcp_server/jobs) |
 | Token usage instrumentation | Done (`logs/token_usage.jsonl`, every question) |

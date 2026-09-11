@@ -1,7 +1,7 @@
 import types
 
-import ingest.fetch as fetch
-from ingest.fetch import TITLE, fetch_all_parts, get_current_issue_date
+import citedguard.ingest.fetch as fetch
+from citedguard.ingest.fetch import TITLE, fetch_all_parts, get_current_issue_date
 
 
 def test_get_current_issue_date_finds_matching_title(monkeypatch):

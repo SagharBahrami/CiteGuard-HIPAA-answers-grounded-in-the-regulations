@@ -3,7 +3,7 @@
 Ingestion mutates two stores that both assume a single writer: Chroma's local
 persistent client, and the SQLite history archive. Nothing previously stopped
 two runs from overlapping -- docker-compose runs four worker replicas, and a
-scheduled update check can fire while a manual `python -m ingest` is still
+scheduled update check can fire while a manual `python -m citedguard.ingest` is still
 going. Overlapping runs can interleave archive-then-upsert pairs and race the
 delete of chunks the other run just wrote.
 
@@ -12,7 +12,7 @@ your turn": a second ingestion started while one is in flight has nothing new
 to do, and queueing behind the lock only to re-embed the whole corpus costs
 real money for no change.
 
-Redis is optional infrastructure here -- `python -m ingest` works without it,
+Redis is optional infrastructure here -- `python -m citedguard.ingest` works without it,
 only the RQ queue needs it -- so an unreachable Redis logs a warning and
 proceeds unlocked instead of blocking ingestion outright. That degradation is
 safe: without Redis the workers can't run at all, leaving a manual CLI run as
@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from redis import Redis
 from redis.exceptions import LockNotOwnedError, RedisError
 
-from config import settings
+from citedguard.config import settings
 
 logger = logging.getLogger(__name__)
 

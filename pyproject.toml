@@ -21,14 +21,17 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
-[tool.setuptools]
-# Every top-level module that gets imported at runtime must be listed here;
-# setuptools will not discover them on its own. tests/test_packaging.py
-# fails if this list drifts out of sync with the modules on disk.
-py-modules = ["config", "generate", "guardrails", "qa", "retriever", "audit", "usage", "mcp_server", "jobs", "locks", "version_query"]
-
+# src-layout: everything importable lives under src/citedguard/ and is found
+# automatically, so there is no hand-maintained module list to drift out of
+# sync with the files on disk (which previously shipped worker containers
+# missing modules -- see tests/test_packaging.py).
+#
+# app.py, mcp_server.py and evals/ are deliberately NOT packaged: they are
+# entrypoints and a dev harness, launched by path from the source tree, never
+# imported by the library.
 [tool.setuptools.packages.find]
-include = ["ingest*", "evals*"]
+where = ["src"]
+include = ["citedguard*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
