@@ -40,3 +40,10 @@ include = ["citedguard*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# app.py and mcp_server.py live at the repo root and are deliberately not
+# packaged, so importing them depends on the root being on sys.path. That
+# happens by accident with `python -m pytest` (which adds the cwd) but NOT
+# with the `pytest` console script (whose sys.path[0] is the bin dir) --
+# so the suite passed locally and failed in CI. Declaring it here makes
+# the path explicit and invocation-independent.
+pythonpath = ["."]
