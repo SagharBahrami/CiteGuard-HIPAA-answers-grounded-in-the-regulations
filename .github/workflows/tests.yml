@@ -1,0 +1,47 @@
+# Runs the test suite on GitHub's own machines every time code is pushed.
+# A red X on a commit means these tests failed; green means they passed.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Don't cancel the 3.12 run just because 3.10 failed -- when a failure is
+      # version-specific, seeing which versions broke is the useful signal.
+      fail-fast: false
+      matrix:
+        # 3.10 is the minimum pyproject allows, 3.12 is a current release.
+        # Testing both catches "works on my machine" version differences.
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install the project and its test dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        # config.py builds its Settings object at import time, and two fields
+        # have no default, so the package cannot even be imported without
+        # these set. Locally they come from .env, which is correctly not in
+        # git -- so CI has to supply them.
+        #
+        # The values are deliberately fake. Every test stubs the OpenAI and
+        # Redis clients (see tests/conftest.py), so nothing here reaches a
+        # real service and no real key is needed. If a test ever starts
+        # failing because these aren't real, that test is making a live call
+        # it shouldn't be making.
+        env:
+          OPENAI_API_KEY: test-key-not-a-real-credential
+          HIPAA_SOURCE_URL: https://example.invalid/test-only
+        run: pytest -q
