@@ -15,7 +15,12 @@ dependencies = [
     "pydantic-settings>=2.5",
     "tenacity>=9.0",
     "rank-bm25>=0.2",
-    "mcp>=1.2",
+    # Capped below 2.0 deliberately: mcp 2.x renames FastMCP to MCPServer and
+    # changes other APIs, which mcp_server.py has not been migrated to. Without
+    # the cap a fresh install silently picks up 2.x and fails at import -- which
+    # is what happened on the first CI run, while machines with an older mcp
+    # already installed kept working.
+    "mcp>=1.2,<2",
 ]
 
 [project.optional-dependencies]
