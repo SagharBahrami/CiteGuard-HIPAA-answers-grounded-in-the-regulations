@@ -20,9 +20,9 @@ jobs:
         python-version: ["3.10", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -44,4 +44,16 @@ jobs:
         env:
           OPENAI_API_KEY: test-key-not-a-real-credential
           HIPAA_SOURCE_URL: https://example.invalid/test-only
-        run: pytest -q
+        # Downloading raw job logs needs admin rights on the repo, so a failure
+        # here is otherwise invisible to anyone without them. Re-emitting the
+        # tail of pytest's output as a GitHub error annotation puts the actual
+        # reason on the run page, where it can be read without those rights.
+        run: |
+          set +e
+          pytest -q 2>&1 | tee pytest-output.txt
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            msg=$(tail -c 4000 pytest-output.txt | sed 's/%/%25/g; s/::/:/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=pytest failed (exit $code)::$msg"
+          fi
+          exit $code
