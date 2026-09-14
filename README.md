@@ -89,7 +89,7 @@ for source in result.sources:
     print(source.citation, source.similarity)
 ```
 
-**Or expose it to an MCP client** (Claude Desktop, Claude Code, etc.) via
+**Or expose it to an MCP client** via
 `mcp_server.py`, which serves two tools over stdio:
 
 - `ask_hipaa_question(query, top_k=3)` — full pipeline (retrieval +
@@ -101,8 +101,9 @@ for source in result.sources:
   caller would rather read the source excerpts itself. No generation or
   guardrail LLM calls, so it's cheaper.
 
-Add it to Claude Desktop's config (`claude_desktop_config.json`) or Claude
-Code's (`claude mcp add`):
+Add it to your MCP client's server configuration. Most clients read a JSON
+config file with an `mcpServers` object; consult your client's docs for its
+location and whether it offers a CLI command to register a server instead:
 
 ```json
 {

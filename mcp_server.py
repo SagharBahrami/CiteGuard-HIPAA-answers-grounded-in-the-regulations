@@ -11,9 +11,9 @@ Two tools, at two different cost/latency points:
   it stays direct rather than going through the queue; it's cheap and fast
   enough that queuing it would only add latency.
 
-Run with: python mcp_server.py (stdio transport, for local MCP clients like
-Claude Desktop or Claude Code to launch as a subprocess). Requires Redis and
-a worker to be running for ask_hipaa_question -- see README.
+Run with: python mcp_server.py (stdio transport, for a local MCP client to
+launch as a subprocess). Requires Redis and a worker to be running for
+ask_hipaa_question -- see README.
 """
 
 import time
